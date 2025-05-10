@@ -35,7 +35,6 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
             print("Unknown message type:", message["type"])
     
     def handle_orderbook_delta(self, delta):
-        print(delta)
         market_id = delta["msg"]["market_ticker"]
         if market_id not in self.order_books:
             print(f"Warning: Received delta for unknown market {market_id}")
@@ -45,6 +44,8 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         size = delta["msg"]["delta"]
         book = self.order_books[market_id][side]
         book[price] += size
+        if book[price] <= 0:
+            del book[price]
         if side == "yes":
             self.publish_yes_orderbook(market_id)
     
