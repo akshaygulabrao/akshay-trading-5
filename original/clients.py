@@ -185,27 +185,28 @@ class KalshiWebSocketClient(KalshiBaseClient):
         self.url_suffix = "/trade-api/ws/v2"
         self.message_id = 1  # Add counter for message IDs
 
-    async def connect(self):
+    async def connect(self,tickers):
         """Establishes a WebSocket connection using authentication."""
         host = self.WS_BASE_URL + self.url_suffix
         auth_headers = self.request_headers("GET", self.url_suffix)
         async with websockets.connect(host, additional_headers=auth_headers) as websocket:
             self.ws = websocket
-            await self.on_open()
+            await self.on_open(tickers)
             await self.handler()
 
-    async def on_open(self):
+    async def on_open(self,tickers):
         """Callback when WebSocket connection is opened."""
         print("WebSocket connection opened.")
-        await self.subscribe_to_tickers()
+        await self.subscribe_to_tickers(tickers)
 
-    async def subscribe_to_tickers(self):
+    async def subscribe_to_tickers(self,tickers):
         """Subscribe to ticker updates for all markets."""
         subscription_message = {
             "id": self.message_id,
             "cmd": "subscribe",
             "params": {
-                "channels": ["ticker"]
+                "channels": ["orderbook_delta"],
+                "market_tickers": tickers
             }
         }
         await self.ws.send(json.dumps(subscription_message))
