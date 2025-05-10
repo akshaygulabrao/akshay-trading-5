@@ -1,7 +1,9 @@
 import os
-from dotenv import load_dotenv
 from cryptography.hazmat.primitives import serialization
-import asyncio
+from datetime import datetime,timedelta
+
+from dotenv import load_dotenv
+import requests
 
 from original.clients import KalshiHttpClient, KalshiWebSocketClient, Environment
 
@@ -27,3 +29,44 @@ def setup_prod():
         raise Exception(f"Error loading private key: {str(e)}")
     
     return KEYID, private_key, env
+
+def get_events_hardcoded():
+    today = datetime.now() + timedelta(hours=3)
+    days = [today.strftime("%y%^b%d")]
+    if today.hour > 10:
+        days.append((today + timedelta(days=1)).strftime("%y%^b%d"))
+    sites = ["NY", "CHI","MIA","AUS","DEN","LAX","PHIL"]
+    evts = []
+    for site in sites:
+        for day in days:
+            evts.append(f"KXHIGH{site}-{day}")
+    return evts
+
+def get_events_kalshi():
+    """
+    Used to verify correctness of hardcoded
+    events
+    """
+    url = "https://api.elections.kalshi.com/trade-api/v2/events"
+    sites = ["NY", "CHI","MIA","AUS","DEN","LAX","PHIL"]
+    evts = []
+    for site in sites:
+        params = {"series_ticker": f"KXHIGH{site}","status": "open"}
+        response = requests.get(url, params=params).json()
+        evts.extend([evt["event_ticker"] for evt in response["events"]])
+    return evts
+
+def get_markets():
+    evts = get_events_hardcoded()
+    url = "https://api.elections.kalshi.com/trade-api/v2/markets"
+    markets = []
+    for e in evts:
+        params = {"event_ticker": e,"status": "open"}
+        response = requests.get(url, params=params).json()
+        markets.extend([m["ticker"] for m in response["markets"]])
+    return markets
+
+if __name__ == "__main__":
+    print(get_events_hardcoded())
+    print(get_events_kalshi())
+    print(get_markets())
