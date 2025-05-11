@@ -46,9 +46,8 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         book[price] += size
         if book[price] <= 0:
             del book[price]
-        if side == "yes":
-            self.publish_yes_orderbook(market_id)
-    
+        self.publish_orderbook(market_id)
+
     def handle_orderbook_snapshot(self, snapshot):
         market_id = snapshot["msg"]["market_ticker"]
         if market_id not in self.order_books:
@@ -59,14 +58,19 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         if "yes" in snapshot["msg"]:
             for price, volume in snapshot["msg"]["yes"]:
                 self.order_books[market_id]["yes"][price] = volume
-        self.publish_yes_orderbook(market_id)
-    
-    def publish_yes_orderbook(self, market_id):
+        self.publish_orderbook(market_id)
+
+    def publish_orderbook(self, market_id):
+        """Publishes both Yes and converted No orderbooks"""
+        yes_book = self.order_books[market_id]["yes"]
+        no_book = self.order_books[market_id]["no"]
+        
+        
         self.pub.send_json({
             "market_ticker": market_id,
-            "yes": dict(self.order_books[market_id]["yes"])
+            "yes": dict(yes_book),
+            "no": dict(no_book),
         })
-
 
 ny_mkts = [mkt for mkt in utils.get_markets() if mkt.startswith("KXHIGHNY")]
 
