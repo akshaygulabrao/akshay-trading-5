@@ -40,7 +40,7 @@ class OrderbookWindow(QMainWindow):
 
 
     def initUI(self):
-        self.setWindowTitle('Top of Orderbook')
+        self.setWindowTitle("Akshay's Weather Orderbook")
         self.tab_widget = QTabWidget()
         self.setCentralWidget(self.tab_widget)
         self.resize(800, 600)
@@ -54,12 +54,12 @@ class OrderbookWindow(QMainWindow):
                 city_code = city_part[6:]  # Extract 'NY' from 'KXHIGHNY'
                 date_part = parts[1]
                 city_groups[city_code][date_part].append(market)
-
+        tab_order = ['NY', 'CHI', 'AUS', 'MIA', 'DEN', 'PHIL', 'LAX']
+        sorted_cities = [city for city in tab_order if city in city_groups]
         self.groups = {}  # city_code -> date_part -> group data
         self.market_to_group = {}  # market -> (city_code, date_part, row_idx)
 
         # Process each city group
-        sorted_cities = sorted(city_groups.keys())
         for city_code in sorted_cities:
             # Create scroll area for the city tab
             scroll_area = QScrollArea()
@@ -98,7 +98,7 @@ class OrderbookWindow(QMainWindow):
                     'table': table,
                     'markets': sorted_markets
                 }
-
+                table.resizeColumnToContents(0)
             self.groups[city_code] = city_data
             self.tab_widget.addTab(scroll_area, city_code)
 
@@ -149,6 +149,7 @@ class OrderbookWindow(QMainWindow):
             if row_idx < table.rowCount():
                 table.item(row_idx, 1).setText(no_str)
                 table.item(row_idx, 2).setText(yes_str)
+
 
 if __name__ == '__main__':
     mkts = utils.get_markets()
