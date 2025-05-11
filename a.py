@@ -1,8 +1,17 @@
 import sys
 import zmq
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QTableWidget, QTableWidgetItem,
-                             QScrollArea, QVBoxLayout, QWidget, QLabel)
+                             QScrollArea, QVBoxLayout, QWidget, QLabel, QTabWidget)
 from PyQt6.QtCore import QThread, pyqtSignal
+from collections import defaultdict
+
+import utils
+
+def extract_number(ticker):
+    last_part = ticker.split('-')[-1]
+    number_str = last_part[1:]
+    return float(number_str)
+
 
 class ZMQListener(QThread):
     data_received = pyqtSignal(dict)
@@ -20,24 +29,79 @@ class ZMQListener(QThread):
             self.data_received.emit(data)
 
 class OrderbookWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, ny_mkts):
         super().__init__()
+        self.ny_mkts = ny_mkts
         self.initUI()
         self.market_data = {}
-        self.group_tables = {}  # Maps group names to (label, table) tuples
         self.zeromq_listener = ZMQListener()
         self.zeromq_listener.data_received.connect(self.update_orderbook)
         self.zeromq_listener.start()
 
+
     def initUI(self):
         self.setWindowTitle('Top of Orderbook')
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.container_widget = QWidget()
-        self.container_layout = QVBoxLayout(self.container_widget)
-        self.scroll_area.setWidget(self.container_widget)
-        self.setCentralWidget(self.scroll_area)
+        self.tab_widget = QTabWidget()
+        self.setCentralWidget(self.tab_widget)
         self.resize(800, 600)
+
+        # Group markets by city and date
+        city_groups = defaultdict(lambda: defaultdict(list))  # city_code -> date_part -> [markets]
+        for market in self.ny_mkts:
+            parts = market.split('-')
+            if len(parts) >= 2:
+                city_part = parts[0]
+                city_code = city_part[6:]  # Extract 'NY' from 'KXHIGHNY'
+                date_part = parts[1]
+                city_groups[city_code][date_part].append(market)
+
+        self.groups = {}  # city_code -> date_part -> group data
+        self.market_to_group = {}  # market -> (city_code, date_part, row_idx)
+
+        # Process each city group
+        sorted_cities = sorted(city_groups.keys())
+        for city_code in sorted_cities:
+            # Create scroll area for the city tab
+            scroll_area = QScrollArea()
+            scroll_area.setWidgetResizable(True)
+            container = QWidget()
+            layout = QVBoxLayout(container)
+            scroll_area.setWidget(container)
+
+            # Process each date group in the city
+            date_groups = city_groups[city_code]
+            sorted_dates = sorted(date_groups.keys())
+            city_data = {}
+            for date_part in sorted_dates:
+                markets = date_groups[date_part]
+                sorted_markets = sorted(markets, key=lambda m: extract_number(m))
+
+                # Create date label and table
+                label = QLabel(f"<h2>{date_part}</h2>")
+                label.setStyleSheet("font-weight: bold; margin-bottom: 5px;")
+                table = QTableWidget()
+                table.setColumnCount(3)
+                table.setHorizontalHeaderLabels(['Market', 'Yes', 'No'])
+                table.setRowCount(len(sorted_markets))
+
+                # Populate table rows
+                for row_idx, market in enumerate(sorted_markets):
+                    table.setItem(row_idx, 0, QTableWidgetItem(market))
+                    table.setItem(row_idx, 1, QTableWidgetItem(""))
+                    table.setItem(row_idx, 2, QTableWidgetItem(""))
+                    self.market_to_group[market] = (city_code, date_part, row_idx)
+
+                layout.addWidget(label)
+                layout.addWidget(table)
+                city_data[date_part] = {
+                    'label': label,
+                    'table': table,
+                    'markets': sorted_markets
+                }
+
+            self.groups[city_code] = city_data
+            self.tab_widget.addTab(scroll_area, city_code)
+
 
     def update_orderbook(self, data):
         market_ticker = data.get('market_ticker')
@@ -46,19 +110,13 @@ class OrderbookWindow(QMainWindow):
 
         # Process Yes book
         filtered_yes = {p: s for p, s in yes_book.items() if s > 0}
-        if filtered_yes:
-            top_yes = max(filtered_yes.items(), key=lambda x: float(x[0]))
-            yes_price, yes_size = top_yes
-        else:
-            yes_price, yes_size = None, 0
+        top_yes = max(filtered_yes.items(), key=lambda x: float(x[0])) if filtered_yes else (None, 0)
+        yes_price, yes_size = top_yes
 
         # Process No book
         filtered_no = {p: s for p, s in no_book.items() if s > 0}
-        if filtered_no:
-            top_no = max(filtered_no.items(), key=lambda x: float(x[0]))
-            no_price, no_size = top_no
-        else:
-            no_price, no_size = None, 0
+        top_no = max(filtered_no.items(), key=lambda x: float(x[0])) if filtered_no else (None, 0)
+        no_price, no_size = top_no
 
         self.market_data[market_ticker] = {
             'yes_price': yes_price,
@@ -66,60 +124,35 @@ class OrderbookWindow(QMainWindow):
             'no_price': no_price,
             'no_size': no_size
         }
-        self.display_orderbook()
 
-    def display_orderbook(self):
-        # Group the market data by their date part
-        groups = {}
-        for market_ticker, data in self.market_data.items():
-            parts = market_ticker.split('-')
-            if len(parts) >= 2:
-                date_part = parts[1]
-                group_name = f"NY-{date_part}"
-            else:
-                group_name = "Unknown"
-            if group_name not in groups:
-                groups[group_name] = {}
-            groups[group_name][market_ticker] = data
+        # Update UI if market is tracked
+        if market_ticker in self.market_to_group:
+            city_code, date_part, row_idx = self.market_to_group[market_ticker]
+            city_group = self.groups.get(city_code, {})
+            date_group = city_group.get(date_part, {})
+            table = date_group.get('table')
+            if not table:
+                return
 
-        # Remove groups that no longer exist (not handling here for simplicity)
-        # Process each group in sorted order
-        sorted_group_names = sorted(groups.keys())
-        for group_name in sorted_group_names:
-            group_data = groups[group_name]
-            if group_name not in self.group_tables:
-                # Create new label and table
-                label = QLabel(f"<h2>{group_name}</h2>")
-                label.setStyleSheet("font-weight: bold; margin-bottom: 5px;")
-                table = QTableWidget()
-                table.setColumnCount(3)
-                table.setHorizontalHeaderLabels(['Market', 'Yes', 'No'])
-                self.container_layout.addWidget(label)
-                self.container_layout.addWidget(table)
-                self.group_tables[group_name] = (label, table)
-            else:
-                label, table = self.group_tables[group_name]
+            data_entry = self.market_data.get(market_ticker, {})
+            yes_str = no_str = ""
 
-            # Populate the table with current group data
-            sorted_markets = sorted(group_data.items(), key=lambda x: x[0])
-            table.setRowCount(len(sorted_markets))
-            for row, (market, data) in enumerate(sorted_markets):
-                yes_str = ""
-                if data['yes_price'] is not None:
-                    yes_price = int(data['yes_price'])
-                    yes_str = f"{100 - yes_price} x {data['yes_size']}"
+            if data_entry.get('yes_price') is not None:
+                yes_price_num = int(data_entry['yes_price'])
+                yes_str = f"{100 - yes_price_num} x {data_entry['yes_size']}"
 
-                no_str = ""
-                if data['no_price'] is not None:
-                    no_price = int(data['no_price'])
-                    no_str = f"{100 - no_price} x {data['no_size']}"
+            if data_entry.get('no_price') is not None:
+                no_price_num = int(data_entry['no_price'])
+                no_str = f"{100 - no_price_num} x {data_entry['no_size']}"
 
-                table.setItem(row, 0, QTableWidgetItem(market))
-                table.setItem(row, 1, QTableWidgetItem(no_str))
-                table.setItem(row, 2, QTableWidgetItem(yes_str))
+            # Update table items
+            if row_idx < table.rowCount():
+                table.item(row_idx, 1).setText(no_str)
+                table.item(row_idx, 2).setText(yes_str)
 
 if __name__ == '__main__':
+    mkts = utils.get_markets()
     app = QApplication(sys.argv)
-    window = OrderbookWindow()
+    window = OrderbookWindow(mkts)
     window.show()
     sys.exit(app.exec())

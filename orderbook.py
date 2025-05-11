@@ -105,8 +105,7 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
             pass
         await super().on_close()
 
-ny_mkts = [mkt for mkt in utils.get_markets() if mkt.startswith("KXHIGHNY")]
-
+mkts = utils.get_markets()
 client = OrderbookWebSocketClient(
     key_id=KEYID,
     private_key=private_key,
@@ -114,4 +113,4 @@ client = OrderbookWebSocketClient(
     pub=pub
 )
 
-asyncio.run(client.connect(ny_mkts))
+asyncio.run(client.connect(mkts))
