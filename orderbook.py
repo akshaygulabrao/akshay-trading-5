@@ -6,6 +6,7 @@ import json
 from collections import defaultdict
 
 import zmq
+import websockets
 
 from original.clients import KalshiWebSocketClient
 import utils
@@ -22,6 +23,30 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         super().__init__(key_id, private_key, environment)
         self.order_books = {}
         self.pub = pub
+    
+    async def connect(self, tickers):
+        """Establishes a WebSocket connection and runs concurrent tasks."""
+        host = self.WS_BASE_URL + self.url_suffix
+        auth_headers = self.request_headers("GET", self.url_suffix)
+        async with websockets.connect(host, additional_headers=auth_headers) as websocket:
+            self.ws = websocket
+            await self.on_open(tickers)
+            
+            # Create tasks for handler and periodic publishing
+            handler_task = asyncio.create_task(self.handler())
+            periodic_task = asyncio.create_task(self.periodic_publish())
+            
+            # Run both tasks concurrently
+            await asyncio.gather(handler_task, periodic_task)
+
+
+    async def periodic_publish(self):
+        """Periodically publishes orderbook data every second."""
+        while True:
+            await asyncio.sleep(1)
+            for market_id in list(self.order_books.keys()):  # Use a copy to avoid dict size change during iteration
+                self.publish_orderbook(market_id)
+            
 
     async def on_message(self, message_str):
         message = json.loads(message_str)
@@ -71,6 +96,14 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
             "yes": dict(yes_book),
             "no": dict(no_book),
         })
+    async def on_close(self):
+        """Clean up resources"""
+        self.periodic_task.cancel()
+        try:
+            await self.periodic_task
+        except asyncio.CancelledError:
+            pass
+        await super().on_close()
 
 ny_mkts = [mkt for mkt in utils.get_markets() if mkt.startswith("KXHIGHNY")]
 
