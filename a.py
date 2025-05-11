@@ -157,3 +157,11 @@ if __name__ == '__main__':
     window = OrderbookWindow(mkts)
     window.show()
     sys.exit(app.exec())
+
+#NY  https://forecast.weather.gov/product.php?site=OKX&product=CLI&issuedby=NYC, https://graphical.weather.gov/GraphicalNDFD.php?width=515&timezone=PDT&sector=OKX&element=maxt&n=1
+#CHI https://forecast.weather.gov/product.php?site=LOT&product=CLI&issuedby=MDW, https://graphical.weather.gov/GraphicalNDFD.php?width=515&timezone=PDT&sector=LOT&element=maxt&n=1
+#AUS https://forecast.weather.gov/product.php?site=EWX&product=CLI&issuedby=AUS, https://graphical.weather.gov/GraphicalNDFD.php?width=515&timezone=PDT&sector=EWX&element=maxt&n=1
+#MIA https://forecast.weather.gov/product.php?site=MFL&product=CLI&issuedby=MIA, https://graphical.weather.gov/GraphicalNDFD.php?width=515&timezone=PDT&sector=MFL&element=maxt&n=1
+#DEN https://forecast.weather.gov/product.php?site=BOU&product=CLI&issuedby=DEN, https://graphical.weather.gov/GraphicalNDFD.php?width=515&timezone=PDT&sector=BOU&element=maxt&n=1
+#PHIL https://forecast.weather.gov/product.php?site=PHI&product=CLI&issuedby=PHL, https://graphical.weather.gov/GraphicalNDFD.php?width=515&timezone=PDT&sector=PHI&element=maxt&n=1
+#LAX https://forecast.weather.gov/product.php?site=LOX&product=CLI&issuedby=LAX, https://graphical.weather.gov/GraphicalNDFD.php?width=515&timezone=PDT&sector=LOX&element=maxt&n=1
