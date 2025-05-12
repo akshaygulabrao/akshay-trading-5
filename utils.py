@@ -7,6 +7,8 @@ import requests
 
 from original.clients import KalshiHttpClient, KalshiWebSocketClient, Environment
 
+from weather_info import sites2tz
+
 def setup_prod():
     """
     Returns (KEYID, private_key, env) for production setup.
