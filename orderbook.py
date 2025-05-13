@@ -12,18 +12,14 @@ from loguru import logger
 from original.clients import KalshiWebSocketClient
 import utils
 
-# Load environment variables
-KEYID, private_key, env = utils.setup_prod()
 
-context = zmq.Context()
-pub = context.socket(zmq.PUB)
-pub.bind("ipc:///tmp/orderbook.ipc")
 
 class OrderbookWebSocketClient(KalshiWebSocketClient):
     def __init__(self, key_id, private_key, environment, pub):
         super().__init__(key_id, private_key, environment)
         self.order_books = {}
         self.pub = pub
+        self.delta_count = 0
     
     async def connect(self, tickers):
         """Establishes a WebSocket connection and runs concurrent tasks."""
@@ -44,9 +40,11 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
     async def periodic_publish(self):
         """Periodically publishes orderbook data every second."""
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(10)
             for market_id in list(self.order_books.keys()):  # Use a copy to avoid dict size change during iteration
                 self.publish_orderbook(market_id)
+            logger.info(f'periodic published finished, processed {self.delta_count} updates')
+            self.delta_count = 0
             
 
     async def on_message(self, message_str):
@@ -76,6 +74,8 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         if book[price] <= 0:
             del book[price]
         self.publish_orderbook(market_id)
+        self.delta_count +=1 
+        
 
     def handle_orderbook_snapshot(self, snapshot):
         market_id = snapshot["msg"]["market_ticker"]
@@ -88,6 +88,7 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
             for price, volume in snapshot["msg"]["yes"]:
                 self.order_books[market_id]["yes"][price] = volume
         self.publish_orderbook(market_id)
+        logger.info('Received Orderbook Snapshot')
 
     def publish_orderbook(self, market_id):
         """Publishes both Yes and converted No orderbooks"""
@@ -100,6 +101,7 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
             "yes": dict(yes_book),
             "no": dict(no_book),
         })
+
     async def on_close(self):
         """Clean up resources"""
         self.periodic_task.cancel()
@@ -111,6 +113,16 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
 
 
 async def main():
+    logger.remove()
+    logger.add('orderbook_logs/ob.log',
+               rotation="24 hours", 
+               retention="3 days",
+               enqueue=True)
+    KEYID, private_key, env = utils.setup_prod()
+
+    context = zmq.Context()
+    pub = context.socket(zmq.PUB)
+    pub.bind("ipc:///tmp/orderbook.ipc")
     mkts = utils.get_markets()
     client = OrderbookWebSocketClient(
         key_id=KEYID,
