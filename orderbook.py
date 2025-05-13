@@ -7,6 +7,7 @@ from collections import defaultdict
 
 import zmq
 import websockets
+from loguru import logger
 
 from original.clients import KalshiWebSocketClient
 import utils
@@ -49,20 +50,23 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
             
 
     async def on_message(self, message_str):
-        message = json.loads(message_str)
-        if message["type"] == "orderbook_delta":
-            self.handle_orderbook_delta(message)
-        elif message["type"] == "orderbook_snapshot":
-            self.handle_orderbook_snapshot(message)
-        elif message["type"] == "subscribed":
-            print("Websocket connected and subscribed to orderbook.")
-        else:
-            print("Unknown message type:", message["type"])
+        try:
+            message = json.loads(message_str)
+            if message["type"] == "orderbook_delta":
+                self.handle_orderbook_delta(message)
+            elif message["type"] == "orderbook_snapshot":
+                self.handle_orderbook_snapshot(message)
+            elif message["type"] == "subscribed":
+                logger.info("Websocket connected and subscribed to orderbook.")
+            else:
+                logger.info("Unknown message type:", message["type"])
+        except Exception as e:
+            logger.error(f"err: {e}")
     
     def handle_orderbook_delta(self, delta):
         market_id = delta["msg"]["market_ticker"]
         if market_id not in self.order_books:
-            print(f"Warning: Received delta for unknown market {market_id}")
+            logger.info(f"Warning: Received delta for unknown market {market_id}")
             return
         side = delta["msg"]["side"]
         price = delta["msg"]["price"]
@@ -105,12 +109,20 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
             pass
         await super().on_close()
 
-mkts = utils.get_markets()
-client = OrderbookWebSocketClient(
-    key_id=KEYID,
-    private_key=private_key,
-    environment=env,
-    pub=pub
-)
 
-asyncio.run(client.connect(mkts))
+async def main():
+    mkts = utils.get_markets()
+    client = OrderbookWebSocketClient(
+        key_id=KEYID,
+        private_key=private_key,
+        environment=env,
+        pub=pub
+    )
+    await client.connect(mkts)
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.error("Rcvd Keyboard Interrupt, exiting")

@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 from datetime import datetime, timedelta
 from enum import Enum
 import json
+from loguru import logger
 
 from requests.exceptions import HTTPError
 
@@ -196,7 +197,7 @@ class KalshiWebSocketClient(KalshiBaseClient):
 
     async def on_open(self,tickers):
         """Callback when WebSocket connection is opened."""
-        print("WebSocket connection opened.")
+        logger.info("WebSocket connection opened.")
         await self.subscribe_to_tickers(tickers)
 
     async def subscribe_to_tickers(self,tickers):
@@ -217,19 +218,19 @@ class KalshiWebSocketClient(KalshiBaseClient):
         try:
             async for message in self.ws:
                 await self.on_message(message)
-        except websockets.ConnectionClosed as e:
+        except websockets.ConnectionClosedOK as e:
             await self.on_close(e.code, e.reason)
         except Exception as e:
             await self.on_error(e)
 
     async def on_message(self, message):
         """Callback for handling incoming messages."""
-        print("Received message:", message)
+        logger.info("Received message:", message)
 
     async def on_error(self, error):
         """Callback for handling errors."""
-        print("WebSocket error:", error)
+        logger.info("WebSocket error:", error)
 
     async def on_close(self, close_status_code, close_msg):
         """Callback when WebSocket connection is closed."""
-        print("WebSocket connection closed with code:", close_status_code, "and message:", close_msg)
+        logger.info("WebSocket connection closed with code:", close_status_code, "and message:", close_msg)
