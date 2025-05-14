@@ -1,0 +1,14 @@
+2025-05-14 02:04:15.018 | INFO     | __main__:main:23 - KNYC
+2025-05-14 02:04:15.146 | INFO     | __main__:main:33 - Saved forecast to forecasts/KNYC/2025-05-14/forecast_0204.csv
+2025-05-14 02:04:15.146 | INFO     | __main__:main:23 - KMDW
+2025-05-14 02:04:15.240 | INFO     | __main__:main:33 - Saved forecast to forecasts/KMDW/2025-05-14/forecast_0204.csv
+2025-05-14 02:04:15.240 | INFO     | __main__:main:23 - KAUS
+2025-05-14 02:04:15.348 | INFO     | __main__:main:33 - Saved forecast to forecasts/KAUS/2025-05-14/forecast_0204.csv
+2025-05-14 02:04:15.348 | INFO     | __main__:main:23 - KMIA
+2025-05-14 02:04:15.457 | INFO     | __main__:main:33 - Saved forecast to forecasts/KMIA/2025-05-14/forecast_0204.csv
+2025-05-14 02:04:15.457 | INFO     | __main__:main:23 - KDEN
+2025-05-14 02:04:15.530 | ERROR    | __main__:main:28 - Site KDEN is down
+2025-05-14 02:04:15.530 | INFO     | __main__:main:23 - KPHL
+2025-05-14 02:04:15.621 | INFO     | __main__:main:33 - Saved forecast to forecasts/KPHL/2025-05-14/forecast_0204.csv
+2025-05-14 02:04:15.621 | INFO     | __main__:main:23 - KLAX
+2025-05-14 02:04:15.705 | ERROR    | __main__:main:28 - Site KLAX is down

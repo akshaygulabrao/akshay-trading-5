@@ -9,20 +9,24 @@ from weather_info import sites2tz,sites2forecast
 
 import requests
 
-def extract_forecast(site, date):
+def extract_forecast(site):
     """
     Returns the maximum temperature and its datetime for the specified date.
     """
     url = sites2forecast.get(site)
     if not url:
-        return None, None
+        raise Exception("URL not found")
     
     response = requests.get(url)
     if response.status_code != 200:
-        return None, None
+        raise Exception("Response not status 200")
     
     soup = BeautifulSoup(response.text, 'html.parser')
-    table = soup.find_all('table')[4]
+    try:
+        table = soup.find_all('table')[4]
+    except IndexError:
+        raise Exception(f"Site {site} is down.")
+
     
     forecast_dict = defaultdict(list)
     data = []
@@ -38,13 +42,15 @@ def extract_forecast(site, date):
         else:
             forecast_dict[d[0]] = d[1:]
     df = pd.DataFrame.from_dict(forecast_dict)
-    df.to_csv("weather_sample.csv",index=None)
-    df = pd.read_csv("weather_sample.csv")
     df["Date"] = df["Date"].ffill()
     df["Date"] = df["Date"].apply(lambda x: x + "/25")
     df["Date"] = pd.to_datetime(df["Date"],format="%m/%d/%y")
     df["Date"] = df["Date"] + df.iloc[:,1].apply(lambda x: datetime.timedelta(hours=x))
     df = df.set_index("Date")
+    return df
+
+def forecast_day(site,date):
+    df = extract_forecast(site)
 
     df_date = df[df.index.date == date]
     
@@ -59,4 +65,4 @@ def extract_forecast(site, date):
 
 if __name__ == "__main__":
     for site in sites2forecast.keys():
-        print(extract_forecast(site, datetime.date(year=2025,month=5,day=13)))
+        print(extract_forecast(site))

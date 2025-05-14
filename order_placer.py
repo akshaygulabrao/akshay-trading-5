@@ -10,12 +10,12 @@ KEYID, private_key, env = utils.setup_prod()
 
 client = KalshiHttpClient(KEYID,private_key,env)
 
-# ct = utils.get_ct()
+# ct = utils.now()
 # print(ct)
 
 
 # params = {
-#     'min_ts': int(utils.get_ct().timestamp()) - int(dt.timedelta(hours=1).total_seconds())
+#     'min_ts': int(utils.now().timestamp()) - int(dt.timedelta(hours=1).total_seconds())
 # }
 # response = client.get('/trade-api/v2/portfolio/positions',params)
 
@@ -35,7 +35,7 @@ params = {
     'count' : 1, 
     'yes_price' : 10,
     'buy_max_cost': 12,
-    'expiration_ts': int(utils.get_ct().timestamp()) + 10,
+    'expiration_ts': int(utils.now().timestamp()) + 10,
     'client_order_id' : alex_order_bid
 }
 response = client.post('/trade-api/v2/portfolio/orders',params)

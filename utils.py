@@ -69,7 +69,7 @@ def get_markets():
         markets.extend([m["ticker"] for m in response["markets"]])
     return markets
 
-def get_ct():
+def now():
     time = datetime.now(tz=ZoneInfo("America/Los_Angeles"))
     return time
 
