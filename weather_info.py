@@ -7,6 +7,17 @@ sites = {
     "KPHL": "https://www.weather.gov/wrh/timeseries?site=KPHL&hours=168",
     "KLAX": "https://www.weather.gov/wrh/timeseries?site=KLAX&hours=168",
 }
+
+sites2city = {
+    "KNYC": "NY",
+    "KMDW": "CHI",
+    "KAUS": "AUS",
+    "KMIA": "MIA",
+    "KDEN": "DEN",
+    "KPHL": "PHIL",
+    "KLAX": "LAX"
+}
+
 # each site reports a more accurate weather value
 # on the hour of a varying minute
 accurate_sensor_minute = {
