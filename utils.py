@@ -1,6 +1,7 @@
 import os
 from cryptography.hazmat.primitives import serialization
 from datetime import datetime,timedelta
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 import requests
@@ -67,6 +68,10 @@ def get_markets():
         response = requests.get(url, params=params).json()
         markets.extend([m["ticker"] for m in response["markets"]])
     return markets
+
+def get_ct():
+    time = datetime.now(tz=ZoneInfo("America/Los_Angeles"))
+    return time
 
 if __name__ == "__main__":
     print(get_events_hardcoded())
