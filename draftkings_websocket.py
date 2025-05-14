@@ -3,6 +3,7 @@ Module correctly subscribes to everything in baseball
 
 Improvments:
 1) Find a way to subscribe to only the moneyline instead of {Run Line, Total, Moneyline}
+2) Add a protobuf schema
 
 """
 import asyncio
@@ -42,8 +43,42 @@ async def on_err(e):
 async def on_msg(msg):
     global ws
     msg = msgpack.unpackb(msg)
-    msg
-    logger.info(f'{msgpack.unpackb(msg)}')
+    
+    # Skip subscription confirmations and non-update messages
+    if msg[1] != "update":
+        return
+    
+    # Extract all market updates from the message
+    market_updates = msg[2][0][2]  # This gets the list of market updates
+    
+    for market in market_updates:
+        # Each market is in format [17, [market_details...]]
+        market_details = market[1]
+        market_name = market_details[1]  # Market name is at index 1
+        
+        if market_name == "Moneyline":
+            # Extract Moneyline data
+            market_id = market_details[0]
+            teams_data = market_details[8]
+            
+            # Extract team names and odds
+            teams = []
+            for team_data in teams_data:
+                teams.append({
+                    'name': team_data[1],
+                    'odds': team_data[3],
+                    'decimal_odds': team_data[4]
+                })
+            
+            # Extract timestamps
+            timestamps = msg[2][2]
+            
+            # Log the Moneyline update
+            logger.info(f"Moneyline Update - Market ID: {market_id}")
+            for team in teams:
+                logger.info(f"  {team['name']}: {team['odds']} (Decimal: {team['decimal_odds']})")
+            logger.info(f"  Timestamps - Created: {timestamps['createdTime']}, Published: {timestamps['publishedTime']}")
+            logger.info("-" * 50)
 
 async def main():
     try:
