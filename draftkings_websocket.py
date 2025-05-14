@@ -1,3 +1,10 @@
+"""
+Module correctly subscribes to everything in baseball
+
+Improvments:
+1) Find a way to subscribe to only the moneyline instead of {Run Line, Total, Moneyline}
+
+"""
 import asyncio
 import uuid
 
@@ -5,7 +12,7 @@ import websockets
 from loguru import logger
 import msgpack
 
-params = {'entity': 'events', 'queryParams': {'query': "$filter=leagueId eq '84240'", 'initialData': False, 'includeMarkets': 'none', 'projection': 'betOffers', 'locale': 'en-US'}, 'forwardedHeaders': {}, 'clientMetadata': {'feature': 'LEAGUE_PAGE', 'X-Client-Name': 'web', 'X-Client-Version': '2519.1.1.7'}, 'jwt': 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImN0eSI6IkpXVCJ9.eyJJc0Fub255bW91cyI6IlRydWUiLCJTaXRlR3JvdXBJZCI6IjM5IiwiU2l0ZUlkIjoiMTUwNjUiLCJEb21haW5JZCI6IjQ0OSIsIkNvdW50cnlDb2RlIjoiVVMiLCJuYmYiOjE3NDcxODcyNjcsImV4cCI6MTc0NzE4NzM4NywiaWF0IjoxNzQ3MTg3MjY3LCJpc3MiOiJ1cm46ZGsiLCJhdWQiOiJ1cm46ZGsifQ.upzfrgLCAIAk_iOEL0kqP1vBa6gEGbnwlxxMjFA6xl5ye75WFx1f1bVS0hHTt2_UJQFNL14qeu0FI4TaTKdBxDZnRi0mtPPmQoEDt9ym4TXxMosZM4nQOZETgbUGFhgxj2gw-piY9gA9JTnkSjarmX3AywYNFmxnmyYQ1zus0IUyM2r-alYI7V7wPZQ5pBY54ExOyfRB7Tu24uprHUq3uroX2jaE2NmciZULD9fQIDWMAJgeQncAYOHtKAJOtJOVhZICNnYs-oE2UGNewc0kohOl0GdX5e-0KvcJsIc8HR9hZJHsYWZnCufzrdIi-EmR8R2g7smiaOdQ86QVlsFmsOfa9VaBKHiyDGgcJx7L7YCW1q9jbx8zapgIqT4VDVQVVOC7t0pBjRoqBi3zcabRtJYfwxZT3WH7VOctCVPQy5ZQyk3scqh09hMd_2CNB_vqlUw7cPcsL7LEqUQJ1BN66ODuJqwk6d_wEnxUQxQKvnYlYZ-gZbTPNlSnW6QJXTzpp1ZTLEAhy-IG_NmwBQ2QuWe5wLohGD_eY9RNtAN4imDbdB6dFvtHq6Fr-plV7X_voA6IVdiajip8aB0WgKulWGTfK3_So_IIRP_8btWvubwny65zYJiFMloKUrzrcISx1yx6p4Nv8XIATDCmgTw6YUJxz74slSo5yY0fIforwng', 'siteName': 'dkusnj'}
+query = {'jsonrpc': '2.0', 'params': {'entity': 'markets', 'queryParams': {'query': "$filter=leagueId eq '84240' and clientMetadata/subCategoryId eq '4519' and tags/all(t: t ne 'SportcastBetBuilder')", 'initialData': False, 'projection': 'betOffers', 'locale': 'en-US'}, 'forwardedHeaders': {}, 'clientMetadata': {'feature': 'LEAGUE_PAGE', 'X-Client-Name': 'web', 'X-Client-Version': '2519.1.1.7'}, 'jwt': 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImN0eSI6IkpXVCJ9.eyJJc0Fub255bW91cyI6IlRydWUiLCJTaXRlR3JvdXBJZCI6IjM5IiwiU2l0ZUlkIjoiMTUwNjUiLCJEb21haW5JZCI6IjQ0OSIsIkNvdW50cnlDb2RlIjoiVVMiLCJuYmYiOjE3NDcyNTMxNTUsImV4cCI6MTc0NzI1MzI3NSwiaWF0IjoxNzQ3MjUzMTU1LCJpc3MiOiJ1cm46ZGsiLCJhdWQiOiJ1cm46ZGsifQ.mPrfLxIzrqF7jRliaFna3cC6A4gg_H_cJV15n8_qIjhbp3cFJYYXa5bZOpv-hnDvjJ7dTi13H-ocpUYxhvyDFKsTJeEZ0-NEYlJwX3TLHwCtiOul56NBcjRbfLRSmW5JOSfX2RNObAvAw6ite72rdl-hXSmx7YrvQMOcjDojIym1uY9Fe8jm9NSnisAS7d4JHYIGWG0gsi5tOy52Tp-YM7Pba8ZhFAdluGdYcEZ9fc99IwuZDh4XWQYOqcd1jJMrmJfvLXIAtnvEGkycKKofwSmsPOfBCZegz4JU9AMMIv-NsQTWvzbhvMLq0FFaISb5ig6svEvjXKGFKmcmxlzTe6R1zI-DERN7umrS_mnRWv-HBPIhh0LDc-DchYGhjx7iGbifkMYs7-BfczQ05jRkRRvsPZ1BG48NhalHcdXRrGjU3mPr7S_17KGA8nAvlhcRxLM-67XqmlU8OE_RN5KE97U_nEyvsBpqawF88GUkG_emKemCL6WMUPcKUeXTISfWlBmEVWcRBA6ErGX3RUWU283k8uZ6sbIFoQvWuf3RQEMxCw0zOIbgo4dh7UPG8XDJHzydOlN6DEvb2i73NcpBKkk4mDU3gNI5EdAqJiSfhihsJ70AMQqFrRpITWC0m9QViUucKiad1rnHMGX_O0pi2SBcH1tJ6QO9g17Vavf0u58', 'siteName': 'dkusnj'}, 'method': 'subscribe', 'id': '4ec8ee8f-ad1c-4aaa-9d2e-9f4a21892a3e'}
 
 ws = None
 
@@ -21,13 +28,11 @@ async def connect():
         except Exception as e:
             logger.error(e)
             await on_err(e)
+            await websocket.close(code=1000, reason="Normal closure")
 
 async def on_open():
     global ws
-    data = msgpack.packb({'jsonrpc':2.0,
-                          'params':params,
-                          'method':'subscribe',
-                          'id':str(uuid.uuid4())})
+    data = msgpack.packb(query)
     await ws.send(data)
 
 async def on_err(e):
@@ -36,10 +41,15 @@ async def on_err(e):
 
 async def on_msg(msg):
     global ws
+    msg = msgpack.unpackb(msg)
+    msg
     logger.info(f'{msgpack.unpackb(msg)}')
 
 async def main():
-    await connect()
+    try:
+        await connect()
+    except:
+        logger.error("main loop cancelled")
 
 if __name__ == "__main__":
     asyncio.run(main())
