@@ -108,15 +108,16 @@ headers = {
     'priority': 'u=1, i',
 }
 draftkings_links = {
-    "Golf": "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/79720",
-    "Baseball": "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/84240",
-    "Basketball": "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/42648",
-    "Hockey" : "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/42133"
+    "golf": "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/79720",
+    "baseball": "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/84240",
+    "basketball": "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/42648",
+    "hockey" : "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/42133"
 }
 
 async def main():
+    sport = "baseball"
     async with httpx.AsyncClient(http2=True) as client:
-        response = await client.get(draftkings_links["Basketball"], headers=headers, cookies=cookies)
+        response = await client.get(draftkings_links[sport], headers=headers, cookies=cookies)
 
     
     if "set-cookie" in response.headers:
@@ -126,7 +127,7 @@ async def main():
             key, value = key_value.split("=", 1)
             cookies[key] = value
 
-    with open('basketball.json','w',encoding='utf-8') as f:
+    with open(f'{sport}.json','w',encoding='utf-8') as f:
         json.dump(response.json(),f,indent=4)
 if __name__ == "__main__":
     asyncio.run(main())

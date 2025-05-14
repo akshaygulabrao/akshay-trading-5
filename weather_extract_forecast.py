@@ -1,6 +1,7 @@
 import scipy.stats as stats
 from bs4 import BeautifulSoup
 import pandas as pd
+import numpy as np
 from utils import get_markets
 import datetime
 from io import StringIO
@@ -42,10 +43,12 @@ def extract_forecast(site):
         else:
             forecast_dict[d[0]] = d[1:]
     df = pd.DataFrame.from_dict(forecast_dict)
-    df["Date"] = df["Date"].ffill()
-    df["Date"] = df["Date"].apply(lambda x: x + "/25")
-    df["Date"] = pd.to_datetime(df["Date"],format="%m/%d/%y")
-    df["Date"] = df["Date"] + df.iloc[:,1].apply(lambda x: datetime.timedelta(hours=x))
+    df["Date"] = df["Date"].replace('', np.nan).ffill()
+    df["Date"] = df["Date"].apply(lambda x: x + "/2025")
+    df["Date"] = pd.to_datetime(df["Date"], format="%m/%d/%Y")
+    df.iloc[:, 1] = df.iloc[:, 1].astype(int)
+    
+    df["Date"] = df["Date"] + pd.to_timedelta(df.iloc[:, 1], unit='h')
     df = df.set_index("Date")
     return df
 

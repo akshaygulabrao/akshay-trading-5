@@ -29,7 +29,8 @@ async def main():
 
             try:
                 df = extract_forecast(site)
-            except Exception:
+            except Exception as e:
+                print(e)
                 logger.error(f"Site {site} is down")
                 print("site is down", file=open(output_path,"w+",encoding="utf-8"))
                 continue
