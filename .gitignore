@@ -8,3 +8,6 @@ mitmweb
 prompt.txt
 orderbook_logs
 forecasts
+build/
+*json
+*log
