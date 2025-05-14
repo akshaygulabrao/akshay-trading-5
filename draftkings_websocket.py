@@ -58,27 +58,24 @@ async def on_msg(msg):
         
         if market_name == "Moneyline":
             # Extract Moneyline data
-            market_id = market_details[0]
+            m = market_details[0]
             teams_data = market_details[8]
             
             # Extract team names and odds
-            teams = []
+            t = []
             for team_data in teams_data:
-                teams.append({
+                t.append({
                     'name': team_data[1],
                     'odds': team_data[3],
                     'decimal_odds': team_data[4]
                 })
             
             # Extract timestamps
-            timestamps = msg[2][2]
+            ts = msg[2][2]
             
-            # Log the Moneyline update
-            logger.info(f"Moneyline Update - Market ID: {market_id}")
-            for team in teams:
-                logger.info(f"  {team['name']}: {team['odds']} (Decimal: {team['decimal_odds']})")
-            logger.info(f"  Timestamps - Created: {timestamps['createdTime']}, Published: {timestamps['publishedTime']}")
-            logger.info("-" * 50)
+            t0 = f'{t[0]['name']}:{t[0]['odds']}'
+            t1 = f'{t[1]['name']}:{t[1]['odds']}'
+            logger.info(f"Market ID: {m},{t0},{t1},{ts['createdTime']},{ts['publishedTime']}")
 
 async def main():
     try:
