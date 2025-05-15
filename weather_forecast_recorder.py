@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime,timedelta
+from zoneinfo import ZoneInfo
 import os
 from pathlib import Path
 
@@ -7,7 +8,7 @@ import pandas as pd
 from loguru import logger
 
 from weather_extract_forecast import extract_forecast
-from weather_info import sites2city
+from weather_info import sites2city,sites2tz
 from utils import now
 
 
@@ -19,11 +20,11 @@ async def main():
                retention="3 days",
                enqueue=True)
     while True:
-        current_date = datetime.now().strftime('%Y-%m-%d')
         for site in sites2city.keys():
+            current_date = now().astimezone(tz=ZoneInfo(sites2tz[site])).strftime('%Y-%m-%d')
             output_dir = Path(f"forecasts/{site}/{current_date}/")
             output_dir.mkdir(parents=True, exist_ok=True)
-            timestamp = datetime.now().strftime('%H%M')
+            timestamp = now().astimezone(tz=ZoneInfo(sites2tz[site])).strftime('%H%M')
             output_path = output_dir / f"forecast_{timestamp}.csv"
             logger.info(f'{site}')
 
