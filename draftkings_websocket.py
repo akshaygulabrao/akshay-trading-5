@@ -90,7 +90,6 @@ class BaseballFeed:
             if msg[1] != "update":
                 return
                 
-            logger.info(f"{msg[2][2]}")
             market_updates = msg[2][0][2]
             
             for market in market_updates:
@@ -108,8 +107,8 @@ class BaseballFeed:
                             'odds': team_data[3],
                         })
                     ts = msg[2][2]
+                    logger.info(market_updates)
                     data = {
-                        'market_id': m,
                         'teams': t,
                         'create': ts['createdTime'],
                         'publish': ts['publishedTime']

@@ -5,6 +5,10 @@ import os
 from zmq.asyncio import Context
 from collections import defaultdict
 
+from sport_pricing import contract_price_odds
+
+team2kalshi = {"LA Dodgers" : "LAD"}
+
 async def zmq_json_listener():
     context = Context()
     socket = context.socket(zmq.SUB)
@@ -24,17 +28,16 @@ async def zmq_json_listener():
                 
                 # Parse JSON
                 data = json.loads(message.decode('utf-8'))
-                markets[data["market_id"]][0] = data["teams"][0]
-                markets[data["market_id"]][1] = data["teams"][1]
-                
+                away = int(data["teams"][0]["odds"])
+                home = int(data["teams"][1]["odds"])
+                away,home = contract_price_odds(away,home)
+                teams2odds[data["teams"][0]["name"]] = away
+                teams2odds[data["teams"][1]["name"]] = home
                 # Print all markets
                 print("Current Market Data:")
                 print("====================")
-                for market_id, teams in markets.items():
-                    print(f"Market ID: {market_id}")
-                    print(f"  Team 1: {teams[0]["name"]}:{teams[0]["odds"]}")
-                    print(f"  Team 2: {teams[1]["name"]}:{teams[1]["odds"]}")
-                    print("-" * 40)
+                for name, odds in teams2odds.items():
+                    print(f"{name},{odds:.02f}")
 
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 print(f"Error processing message: {e}")
@@ -48,6 +51,7 @@ async def zmq_json_listener():
 
 if __name__ == "__main__":
     markets = defaultdict(lambda: [None, None])
+    teams2odds = defaultdict(lambda : 0)
     try: 
         asyncio.run(zmq_json_listener())
     except Exception as e:
