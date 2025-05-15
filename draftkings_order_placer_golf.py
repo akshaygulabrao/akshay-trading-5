@@ -7,28 +7,27 @@ from collections import defaultdict
 from utils import now
 
 from sport_pricing import contract_price_odds
-from draftkings_kalshi_sports import filter_mkts,get_all_mkts
+from draftkings_kalshi_sports import filter_mkts, get_all_mkts
 
+# Global variables shared across all coroutines
 name2odds = defaultdict(lambda: 0)
 name2mkt = defaultdict(lambda: '')
-mtks = []
+mkts = []
 
 async def get_kalshi_mkts():
+    global mkts  # Declare mkts as global to modify the module-level variable
     while True:
-        mkts = get_all_mkts()
+        mkts = get_all_mkts()  # This now updates the global mkts list
         await asyncio.sleep(100)
 
 async def match_mkts():
     while True:
-        print("Getting markets...")
-        # for n in name2odds.keys():
-        #     print(n)
-        await asyncio.sleep(5)  # Example: run every 5 seconds
+        print('match_mkts')
+        await asyncio.sleep(5)
 
 async def odds():
     context = Context()
     socket = context.socket(zmq.SUB)
-    
     socket.connect("ipc:///tmp/draftkings_golf.ipc")
     socket.setsockopt_string(zmq.SUBSCRIBE, "")
     
@@ -36,28 +35,21 @@ async def odds():
     
     try:
         while True:
-            # Receive as bytes and decode
             message = await socket.recv()
+            os.system('clear')
             try:
-                # Clear the terminal
-                os.system('clear')
-                
-                # Parse JSON
                 data = json.loads(message.decode('utf-8'))
                 i = 0
-                for name,odds in data.items():
-                    odds,_ = contract_price_odds(odds,0)
-                    name2odds[name] = odds
+                for name, odds_val in data.items():
+                    # Update the global name2odds
+                    calculated_odds, _ = contract_price_odds(odds_val, 0)
+                    name2odds[name] = calculated_odds  # Mutates the global defaultdict
                     if i < 10:
-                        print(name,f'{odds:.02f}')
-                        i+=1
+                        print(f"{name}: {calculated_odds:.02f}")
+                        i += 1
                 print(now())
-
-
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
                 print(f"Error processing message: {e}")
-                print(f"Raw message: {message}")
-                
     except KeyboardInterrupt:
         print("\nShutting down...")
     finally:
@@ -65,7 +57,6 @@ async def odds():
         context.term()
 
 async def main():
-    # Run both tasks concurrently
     await asyncio.gather(
         odds(),
         get_kalshi_mkts(),
@@ -73,10 +64,6 @@ async def main():
     )
 
 if __name__ == "__main__":
-    name2odds = defaultdict(lambda: 0)
-    name2mkt = defaultdict(lambda: '')
-    mtks = []
-
     try: 
         asyncio.run(main())
     except Exception as e:
