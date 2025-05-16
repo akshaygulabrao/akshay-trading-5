@@ -8,7 +8,6 @@ from utils import now,setup_prod
 from original.clients import KalshiHttpClient
 
 from sport_pricing import contract_price_odds
-from draftkings_kalshi_sports import filter_mkts, get_all_mkts
 
 name2mkt = defaultdict(lambda: '')
 name2odds = defaultdict(lambda: 0)
