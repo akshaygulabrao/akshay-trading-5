@@ -2,7 +2,7 @@ import numpy as np
 import math
 
 
-def contract_price_odds(away_odds,home_odds):
+def odds2(away_odds,home_odds):
     # Calculate implied probabilities (without assuming favorite/underdog order)
     home_prob = (-home_odds) / (-home_odds + 100) if home_odds < 0 else 100 / (home_odds + 100)
     away_prob = (-away_odds) / (-away_odds + 100) if away_odds < 0 else 100 / (away_odds + 100)

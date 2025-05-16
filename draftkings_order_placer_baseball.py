@@ -9,9 +9,11 @@ from original.clients import KalshiHttpClient
 
 from sport_pricing import contract_price_odds
 
+sports2name = defaultdict(lambda : '')
 name2mkt = defaultdict(lambda: '')
 name2odds = defaultdict(lambda: 0)
 mkt2bidask_id = defaultdict(lambda: ('', ''))
+name2udpate = defaultdict(lambda: 0)
 KEYID, private_key, env = setup_prod()
 
 client = KalshiHttpClient(KEYID,private_key,env)
@@ -64,6 +66,8 @@ async def odds():
             message = await socket.recv()
             try:
                 data = json.loads(message.decode('utf-8'))
+                for team in data["players"]:
+                    sports2name[data["sport"]] = team[team[0]]
                 home, away = data
                 home_name = home[0]
                 home_odds = home[1]
