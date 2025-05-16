@@ -11,3 +11,6 @@ forecasts
 build/
 *json
 *log
+_opam
+at5/_build
+laptop1.txt

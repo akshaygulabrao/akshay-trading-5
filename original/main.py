@@ -30,15 +30,16 @@ client = KalshiHttpClient(
 )
 
 # Get account balance
-balance = client.get_balance()
-print("Balance:", balance)
+# balance = client.get_balance()
+print(client.sign_pss_text('hey'))
+# print("Balance:", balance)
 
-# Initialize the WebSocket client
-ws_client = KalshiWebSocketClient(
-    key_id=KEYID,
-    private_key=private_key,
-    environment=env
-)
+# # Initialize the WebSocket client
+# ws_client = KalshiWebSocketClient(
+#     key_id=KEYID,
+#     private_key=private_key,
+#     environment=env
+# )
 
-# Connect via WebSocket
-asyncio.run(ws_client.connect())
+# # Connect via WebSocket
+# asyncio.run(ws_client.connect())
