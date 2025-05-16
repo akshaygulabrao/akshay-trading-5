@@ -22,8 +22,12 @@ async def get_kalshi_mkts():
 
 async def match_mkts():
     while True:
-        print('match_mkts')
-        await asyncio.sleep(5)
+        for name in name2odds:
+            mkt_raw = filter_mkts(mkts,name)
+            for mkt in mkt_raw:
+                if 'PGA Championship' in mkt['rules_primary']:
+                    name2mkt[name] = mkt['ticker']
+        await asyncio.sleep(1)
 
 async def odds():
     context = Context()
@@ -45,7 +49,7 @@ async def odds():
                     calculated_odds, _ = contract_price_odds(odds_val, 0)
                     name2odds[name] = calculated_odds  # Mutates the global defaultdict
                     if i < 10:
-                        print(f"{name}: {calculated_odds:.02f}")
+                        print(f"{name}: {calculated_odds:.02f}, {name2mkt[name]}")
                         i += 1
                 print(now())
             except (json.JSONDecodeError, UnicodeDecodeError) as e:
