@@ -33,6 +33,9 @@ def setup_prod():
     
     return KEYID, private_key, env
 
+urls = {'status': 'https://api.elections.kalshi.com/trade-api/v2/exchange/status',
+        'mkts': 'https://api.elections.kalshi.com/trade-api/v2/markets'}
+
 def get_events_hardcoded():
     today = datetime.now() + timedelta(hours=3)
     days = [today.strftime("%y%^b%d")]
@@ -69,8 +72,8 @@ def get_markets():
         markets.extend([m["ticker"] for m in response["markets"]])
     return markets
 
-def now():
-    time = datetime.now(tz=ZoneInfo("America/Los_Angeles"))
+def now(site="KLAX"):
+    time = datetime.now(tz=ZoneInfo(sites2tz[site]))
     return time
 
 if __name__ == "__main__":
