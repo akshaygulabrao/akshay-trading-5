@@ -22,7 +22,7 @@ link_directories(
 )
 
 # Define the source files for the project
-add_executable(websocket_client src/main.cpp)
+add_executable(websocket_client main.cpp)
 
 # Link libraries (explicit OpenSSL linking)
 target_link_libraries(websocket_client
