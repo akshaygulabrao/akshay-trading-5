@@ -7,7 +7,7 @@ from collections import defaultdict
 from utils import now,setup_prod
 from original.clients import KalshiHttpClient
 
-from sport_pricing import contract_price_odds
+from sport_pricing import odds2
 
 sports2name = defaultdict(lambda : '')
 name2mkt = defaultdict(lambda: '')
@@ -23,7 +23,7 @@ def print_ui():
     os.system('clear')
     print(now())
     for name, odds_val in name2odds.items():
-        print(f'{name},{round(odds_val*100)},{name2mkt[name]},{mkt2bidask_id[name2mkt[name]]}')
+        print(f'{name},{round(odds_val*100)}')
 
 
 
@@ -50,13 +50,14 @@ async def match_mkts():
                     name2mkt[i] = j
                 print_ui()
         except Exception as e:
+            print(e)
             pass
         await asyncio.sleep(10)
 
 async def odds():
     context = Context()
     socket = context.socket(zmq.SUB)
-    socket.connect("ipc:///tmp/draftkings_2team.ipc")
+    socket.connect("ipc:///tmp/draftkings.ipc")
     socket.setsockopt_string(zmq.SUBSCRIBE, "")
     
     print("ZMQ JSON listener started. Waiting for messages...")
@@ -66,17 +67,15 @@ async def odds():
             message = await socket.recv()
             try:
                 data = json.loads(message.decode('utf-8'))
+                odd_sum = 0 #normalize after odds computation
                 for team in data["players"]:
+                    assert isinstance(team[0],str)
+                    assert isinstance(team[1],int)
                     sports2name[data["sport"]] = team[team[0]]
-                home, away = data
-                home_name = home[0]
-                home_odds = home[1]
-                away_name = away[0]
-                away_odds = away[1]
-                away_odds_adj, home_odds_adj = contract_price_odds(away_odds, home_odds)
-                name2odds[home_name] = home_odds_adj
-                name2odds[away_name] = away_odds_adj
-                print_ui()
+                    name2odds[team[0]] = odds2(team[1])
+                    odd_sum += team[1]
+                for team in data["players"]:
+                    name2odds[team[0]] /= odd_sum
             except (json.JSONDecodeError, UnicodeDecodeError, KeyError) as e:
                 print(f"Error processing message: {e}")
     except KeyboardInterrupt:
