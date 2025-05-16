@@ -17,8 +17,10 @@ def setup_prod():
     # Add your production setup code here
     load_dotenv()
     env = Environment.PROD# toggle environment here
-    KEYID = os.getenv('DEMO_KEYID') if env == Environment.DEMO else os.getenv('PROD_KEYID')
-    KEYFILE = os.getenv('DEMO_KEYFILE') if env == Environment.DEMO else os.getenv('PROD_KEYFILE')
+    KEYID = os.getenv('PROD_KEYID')
+    KEYFILE = os.getenv('PROD_KEYFILE')
+    assert KEYFILE is not None
+    assert KEYID is not None
 
     try:
         with open(KEYFILE, "rb") as key_file:
