@@ -4,14 +4,27 @@ import zmq
 import os
 from zmq.asyncio import Context
 from collections import defaultdict
-from utils import now
+from utils import now,setup_prod
+from original.clients import KalshiHttpClient
 
 from sport_pricing import contract_price_odds
 from draftkings_kalshi_sports import filter_mkts, get_all_mkts
 
 name2mkt = defaultdict(lambda: '')
 name2odds = defaultdict(lambda: 0)
-mkt2bidask_id = defaultdict(lambda : ('',''))
+mkt2bidask_id = defaultdict(lambda: ('', ''))
+KEYID, private_key, env = setup_prod()
+
+client = KalshiHttpClient(KEYID,private_key,env)
+
+def print_ui():
+    global name2odds
+    os.system('clear')
+    print(now())
+    for name, odds_val in name2odds.items():
+        print(f'{name},{round(odds_val*100)},{name2mkt[name]},{mkt2bidask_id[name2mkt[name]]}')
+
+
 
 async def save_name2odds_periodically():
     while True:
@@ -34,6 +47,7 @@ async def match_mkts():
             else:
                 for i, j in data.items():
                     name2mkt[i] = j
+                print_ui()
         except Exception as e:
             pass
         await asyncio.sleep(10)
@@ -49,8 +63,6 @@ async def odds():
     try:
         while True:
             message = await socket.recv()
-            os.system('clear')
-            print(now())
             try:
                 data = json.loads(message.decode('utf-8'))
                 home, away = data
@@ -61,8 +73,7 @@ async def odds():
                 away_odds_adj, home_odds_adj = contract_price_odds(away_odds, home_odds)
                 name2odds[home_name] = home_odds_adj
                 name2odds[away_name] = away_odds_adj
-                for name, odds_val in name2odds.items():
-                    print(f'{name},{round(odds_val*100)},{name2mkt[name]}')
+                print_ui()
             except (json.JSONDecodeError, UnicodeDecodeError, KeyError) as e:
                 print(f"Error processing message: {e}")
     except KeyboardInterrupt:
@@ -81,8 +92,7 @@ async def main():
         print("name2odds.json not found, starting fresh")
     except Exception as e:
         print(f"Error loading name2odds.json: {e}")
-    for name, odds_val in name2odds.items():
-        print(f'{name},{round(odds_val*100)},{name2mkt[name]}')
+    print_ui()
     await asyncio.gather(
         odds(),
         match_mkts(),
