@@ -20,3 +20,5 @@ weather info contains useful data about the markets
 # Weather Pricing
 see weather pricing for my formulas
 
+# draftkings order placer
+tracks current positions, need to implement actual orders still

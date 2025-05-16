@@ -1,5 +1,7 @@
 """
 Publishes orderbook data to ipc socket via zmq.
+I used to use this ~5/12/25, but realized the orderbook
+is pointless at my frequency.
 """
 import asyncio
 import json

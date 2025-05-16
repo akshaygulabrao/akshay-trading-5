@@ -10,7 +10,7 @@ base_url = "https://api.mesowest.net/v2/stations/timeseries"
 params = {
     "STID": "KLAX",
     "showemptystations": "1",
-    "units": "temp|C,speed|mph,english",
+    "units": "temp|F,speed|mph,english",
     "recent": "120",
     "token": "d8c6aee36a994f90857925cea26934be",
     "complete": "1",
@@ -35,13 +35,14 @@ def sensor_reading_history(site):
 
 def latest_sensor_reading(site):
     df = sensor_reading_history(site)
-    last_entry = df[df.index.minute == accurate_sensor_minute[site]].iloc[-1]
+    last_entry = df.iloc[-1]
     d = last_entry.name.to_pydatetime()
     d = d.replace(tzinfo=ZoneInfo(utils.sites2tz[site]))
-    t = float(last_entry.air_temp_set_1) * 1.8 + 32
+    t = last_entry.air_temp_set_1
     return d,t
 
 if __name__ == "__main__":
     for site in sites.keys():
         
-        print(sensor_reading_history(site))
+        d,t = latest_sensor_reading(site)
+        print(site,t, (utils.now() - d).total_seconds() / 60)

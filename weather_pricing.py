@@ -22,4 +22,4 @@ def contract_price(forecasted_max,hours_till,spread_error,strikes_allowed, max_s
 mkts = get_markets()
 for site in sites2city.keys():
     site_mkts = [i for i in mkts if i.startswith(f"KXHIGH{sites2city[site]}")]
-    print(extract_forecast(site))
+    df = sensor_reading_history(site)
