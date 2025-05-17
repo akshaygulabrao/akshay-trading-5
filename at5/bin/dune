@@ -1,4 +1,0 @@
-(executable
- (public_name at5)
- (name main)
- (libraries at5 core x509 cstruct))

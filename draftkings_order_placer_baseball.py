@@ -40,10 +40,12 @@ mkt2position: Dict[MarketId, Tuple[int, float]] = {}
 mkt2bids: Dict[MarketId, str] = defaultdict(lambda: '')
 mkt2asks: Dict[MarketId, str] = defaultdict(lambda: '')
 mkt2prices: Dict[MarketId, Tuple[float, float]] = {}
-mkt2profit: Dict[MarketId, float] = {}
+mkt2profit: Dict[MarketId, float] = defaultdict(lambda: 0.0)
 
 KEYID, private_key, env = setup_prod()
 client = KalshiHttpClient(KEYID, private_key, env)
+
+
 update_lock = asyncio.Lock()
 
 
@@ -98,18 +100,7 @@ async def update_positions_and_orders_once() -> None:
                 elif order['action'] == 'sell':
                     mkt2asks[mkt_id] = order['client_order_id']
             
-            # Update profit calculation
-            n = int(time.time())
-            params = {'status': 'executed', 'min_ts': n - active_time}
-            executed_orders = client.get(urls['orders'],params)['orders']
-            for order in executed_orders:
-                mkt_id = order['ticker']
-                if order['action'] == 'buy':
-                    mkt2profit[mkt_id] += order['yes_price']
-                else:
-                    mkt2profit[mkt_id] -= order['yes_price']
-            
-            logging.info("Updated positions, orders, and profit for all markets")
+            logging.info("Updated positions, orders of all markets")
         except Exception as e:
             logging.error(f"Error updating positions/orders: {str(e)}", exc_info=True)
 
@@ -121,7 +112,7 @@ async def place_orders_based_on_position(updated_markets: Set[MarketId]) -> None
                 name = mkt2name.get(market_id)
                 if not name or name not in name2odds:
                     continue
-                spread = 15
+                print(market_id,mkt2position[market_id])
                 current_price = name2odds[name]
                 price_cent = int(round(current_price * 100))
                 position = mkt2position.get(market_id, (0, 0.0))[0]
@@ -131,7 +122,6 @@ async def place_orders_based_on_position(updated_markets: Set[MarketId]) -> None
                 # Get existing order IDs
                 current_bid_id = mkt2bids[market_id]
                 current_ask_id = mkt2asks[market_id]
-                
                 # Position-based order logic
                 if position == 1:  # Long position - sell
                     if current_bid_id != '':
@@ -325,7 +315,7 @@ async def process_odds_data(data: Dict[str, Any]) -> None:
 
         if updated_markets:
             await place_orders_based_on_position(updated_markets)
-            print_ui()
+            # print_ui()
     except KeyError as e:
         logging.error(f"Missing key in data: {str(e)}")
     except (ValueError, TypeError) as e:
