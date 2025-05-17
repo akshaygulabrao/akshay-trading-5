@@ -235,32 +235,3 @@ class KalshiWebSocketClient(KalshiBaseClient):
     async def on_close(self, close_status_code, close_msg):
         """Callback when WebSocket connection is closed."""
         logger.info("WebSocket connection closed with code:", close_status_code, "and message:", close_msg)
-
-def sign_pss_text(private_key, text: str) -> str:
-    """Signs the text using RSA-PSS and returns the base64 encoded signature."""
-    message = text.encode('utf-8')
-    try:
-        signature = private_key.sign(
-            message,
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=0
-            ),
-            hashes.SHA256()
-        )
-        return base64.b64encode(signature).decode('utf-8')
-    except InvalidSignature as e:
-        raise ValueError("RSA sign PSS failed") from e
-    
-
-if __name__ == "__main__":
-    KEYFILE = os.getenv('PROD_KEYFILE')
-    try:
-        with open(KEYFILE, "rb") as key_file:
-            private_key = serialization.load_pem_private_key(
-                key_file.read(),
-                password=None)
-    except Exception as e:
-        raise Exception(e)
-    print(sign_pss_text(private_key, "hey"))
-    

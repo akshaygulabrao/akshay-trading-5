@@ -16,7 +16,7 @@ def setup_prod():
     """
     # Add your production setup code here
     load_dotenv()
-    env = Environment.PROD# toggle environment here
+    env = Environment.PROD
     KEYID = os.getenv('PROD_KEYID')
     KEYFILE = os.getenv('PROD_KEYFILE')
     assert KEYFILE is not None
