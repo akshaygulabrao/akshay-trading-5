@@ -35,8 +35,11 @@ def setup_prod():
     
     return KEYID, private_key, env
 
-urls = {'status': 'https://api.elections.kalshi.com/trade-api/v2/exchange/status',
-        'mkts': 'https://api.elections.kalshi.com/trade-api/v2/markets'}
+urls = {'status': '/trade-api/v2/exchange/status',
+        'mkts': '/trade-api/v2/markets',
+        'positions':'/trade-api/v2/portfolio/positions',
+        'orders':'/trade-api/v2/portfolio/orders',
+        }
 
 def get_events_hardcoded():
     today = datetime.now() + timedelta(hours=3)

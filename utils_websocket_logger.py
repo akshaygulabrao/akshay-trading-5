@@ -25,8 +25,9 @@ def websocket_message(flow: http.HTTPFlow):
             if market_name in ["Winner", "Moneyline"]:
                 players = market_info[1][8]
                 players_critical = []
-                for p in players[:10]:
+                for p in players:
                     players_critical.append((p[1],int(p[3])))
+                print(players_critical)
                 pub_golf.send_json({"sport": sport_id, "players": players_critical})
                 print(utils.now("KLAX").time())
         
