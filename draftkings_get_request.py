@@ -5,6 +5,7 @@ import os
 import json
 import requests
 from utils import urls
+from loguru import logger 
 
 import draftkings_init
 
@@ -30,10 +31,11 @@ selection_id2participants = {}
 market_id2names = {}
 name2odds = {}
 name2kalshi_mkts = {}
+market_ids_traded = set(['KXMLBGAME-25MAY18HOUTEX-HOU'])
 
 for sport in sports:
     for events in sport_json[sport]['events']:
-        if events['status'] in ['STARTED']:
+        if events['status'] in ['STARTED','NOT_STARTED']:
             if sport not in sports2events_id:
                 sports2events_id[sport] = []
             sports2events_id[sport].append(events['id'])
@@ -49,8 +51,10 @@ for sport in sports:
             market_id2names[selection['marketId']].append(selection['label'])
             name2odds[selection['label']] = 1 / selection['trueOdds']
 
-sport2kalshi_series = {'Golf': 'KXPGA', 'Baseball' : 'KXMLBGAME', 'UFC': 'KXUFCFIGHT', 'EPL': 'KXEPLGAME', 'Hockey': 'KXNHLGAME'}
-baseball_exceptions = {"KC Royals": "KC", "ARI Diamondbacks": "AZ", "SD Padres": "SD"}
+sport2kalshi_series = {'Golf': 'KXPGA', 'Baseball' : 'KXMLBGAME', 'UFC': 'KXUFCFIGHT', 'EPL': 'KXEPLGAME', 'Hockey': 'KXNHLGAME', 'Basketball': 'KXNBASERIES', 'Tennis': 'KXATPIT'}
+
+baseball_exceptions = {"KC Royals": "KC", "ARI Diamondbacks": "AZ", "SD Padres": "SD", "WAS Nationals": "WSH",
+                       'TB Rays': 'TB', 'TOR Blue Jays': 'TOR', 'LA Angels': 'LAA', 'LA Dodgers': 'LAD', 'NY Yankees': 'NYY', 'NY Mets': 'NYM','CHI White Sox': 'CWS', 'CHI Cubs': 'CHC', 'Athletics' :'ATH', 'SF Giants': 'SF'}
 for sport in sports2events_id.keys():
     params = {'series_ticker': sport2kalshi_series[sport],'status':'open','limit':100}
     response = requests.get(kalshi_url+urls['markets'],params=params)
@@ -60,20 +64,20 @@ for sport in sports2events_id.keys():
     for event_id in sports2events_id[sport]:
         for name in market_id2names[event_id2market_id[event_id]]:
             for kalshi_mkt in kalshi_markets:
-                if sport in ["UFC", "Golf"] and name in kalshi_mkt['rules_primary']:
+                if sport in ["UFC", "Golf", 'Tennis'] and name in kalshi_mkt['rules_primary']:
                     if name in name2kalshi_mkts:
                         raise ValueError('kalshi mkt already found for name')
                     name2kalshi_mkts[name] = kalshi_mkt['ticker']
                 elif sport == "Baseball":
                     name_split = name.split()
-                    if len(name_split) == 2 and len(name_split[0]) == 3: #city abbrev
-                        if kalshi_mkt["ticker"].count(name_split[0].upper()) == 2:
+                    if name in baseball_exceptions:
+                        if kalshi_mkt["ticker"].count(baseball_exceptions[name]) == 2:
                             if name in name2kalshi_mkts:
                                 print(name,name2kalshi_mkts[name])
                                 raise ValueError('kalshi mkt already found for name')
                             name2kalshi_mkts[name] = kalshi_mkt['ticker']
-                    if name in baseball_exceptions:
-                        if kalshi_mkt["ticker"].count(baseball_exceptions[name]) == 2:
+                    elif len(name_split) == 2 and len(name_split[0]) == 3: #city abbrev
+                        if kalshi_mkt["ticker"].count(name_split[0].upper()) == 2:
                             if name in name2kalshi_mkts:
                                 print(name,name2kalshi_mkts[name])
                                 raise ValueError('kalshi mkt already found for name')
@@ -91,11 +95,3 @@ for sport in sports2events_id.keys():
         for name in market_id2names[event_id2market_id[event_id]]:
             if name in name2kalshi_mkts:
                 print('    ', f'{name}({name2odds[name]/ odds_total:.03f})', ' -> ', name2kalshi_mkts[name])
-
-for sport,events in sports2events_id.items():
-    print(sport)
-    for event,market in event_id2market_id.items():
-        for names in market_id2names[market]:
-                requests.get()
-                print('  ->', names)
-                
