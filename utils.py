@@ -36,7 +36,7 @@ def setup_prod():
     return KEYID, private_key, env
 
 urls = {'status': '/trade-api/v2/exchange/status',
-        'mkts': '/trade-api/v2/markets',
+        'markets': '/trade-api/v2/markets',
         'positions':'/trade-api/v2/portfolio/positions',
         'orders':'/trade-api/v2/portfolio/orders',
         }

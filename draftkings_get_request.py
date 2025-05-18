@@ -3,10 +3,16 @@ import numpy as np
 import pandas as pd
 import os
 import json
+import requests
+from utils import urls
 
 import draftkings_init
 
-t0 = draftkings_init.fetch_all_sports()
+kalshi_url = 'https://api.elections.kalshi.com'
+urls['markets']
+
+t0 = asyncio.run(draftkings_init.fetch_all_sports())
+
 
 sports = list(draftkings_init.draftkings_links.keys())
 sport_json = {}
@@ -23,10 +29,11 @@ selection_id2market_id = {}
 selection_id2participants = {}
 market_id2names = {}
 name2odds = {}
+name2kalshi_mkts = {}
 
 for sport in sports:
     for events in sport_json[sport]['events']:
-        if events['status'] == 'STARTED':
+        if events['status'] in ['STARTED']:
             if sport not in sports2events_id:
                 sports2events_id[sport] = []
             sports2events_id[sport].append(events['id'])
@@ -40,11 +47,55 @@ for sport in sports:
             if selection['marketId'] not in market_id2names:
                 market_id2names[selection['marketId']] = []
             market_id2names[selection['marketId']].append(selection['label'])
-            name2odds[selection['label']] = selection['trueOdds']
+            name2odds[selection['label']] = 1 / selection['trueOdds']
+
+sport2kalshi_series = {'Golf': 'KXPGA', 'Baseball' : 'KXMLBGAME', 'UFC': 'KXUFCFIGHT', 'EPL': 'KXEPLGAME', 'Hockey': 'KXNHLGAME'}
+baseball_exceptions = {"KC Royals": "KC", "ARI Diamondbacks": "AZ", "SD Padres": "SD"}
+for sport in sports2events_id.keys():
+    params = {'series_ticker': sport2kalshi_series[sport],'status':'open','limit':100}
+    response = requests.get(kalshi_url+urls['markets'],params=params)
+    if response.status_code != 200:
+        raise ValueError("status not 200")
+    kalshi_markets = response.json()['markets']
+    for event_id in sports2events_id[sport]:
+        for name in market_id2names[event_id2market_id[event_id]]:
+            for kalshi_mkt in kalshi_markets:
+                if sport in ["UFC", "Golf"] and name in kalshi_mkt['rules_primary']:
+                    if name in name2kalshi_mkts:
+                        raise ValueError('kalshi mkt already found for name')
+                    name2kalshi_mkts[name] = kalshi_mkt['ticker']
+                elif sport == "Baseball":
+                    name_split = name.split()
+                    if len(name_split) == 2 and len(name_split[0]) == 3: #city abbrev
+                        if kalshi_mkt["ticker"].count(name_split[0].upper()) == 2:
+                            if name in name2kalshi_mkts:
+                                print(name,name2kalshi_mkts[name])
+                                raise ValueError('kalshi mkt already found for name')
+                            name2kalshi_mkts[name] = kalshi_mkt['ticker']
+                    if name in baseball_exceptions:
+                        if kalshi_mkt["ticker"].count(baseball_exceptions[name]) == 2:
+                            if name in name2kalshi_mkts:
+                                print(name,name2kalshi_mkts[name])
+                                raise ValueError('kalshi mkt already found for name')
+                            name2kalshi_mkts[name] = kalshi_mkt['ticker']
+
+
+
+for sport in sports2events_id.keys():
+    params = {'series': sport2kalshi_series[sport],'status':'open','limit':100}
+    for event_id in sports2events_id[sport]:
+        print('  ',event_id, ' -> ', event_id2event_name[event_id])
+        odds_total = 0
+        for name in market_id2names[event_id2market_id[event_id]]:
+            odds_total += name2odds[name]
+        for name in market_id2names[event_id2market_id[event_id]]:
+            if name in name2kalshi_mkts:
+                print('    ', f'{name}({name2odds[name]/ odds_total:.03f})', ' -> ', name2kalshi_mkts[name])
 
 for sport,events in sports2events_id.items():
     print(sport)
-    for event_id in events:
-        print(' ', event_id,'->',event_id2event_name[event_id])
-        for name in market_id2names[event_id2market_id[event_id]]:
-            print('  ->',name, name2odds[name])
+    for event,market in event_id2market_id.items():
+        for names in market_id2names[market]:
+                requests.get()
+                print('  ->', names)
+                

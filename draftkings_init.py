@@ -116,7 +116,7 @@ draftkings_links = {
     "UFC": "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/9034",
 }
 
-async def main():
+async def fetch_all_sports():
     for sport in draftkings_links.keys():
         async with httpx.AsyncClient(http2=True) as client:
             response = await client.get(draftkings_links[sport], headers=headers)
@@ -126,4 +126,4 @@ async def main():
             json.dump(response,f,indent=4)
     
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(fetch_all_sports())
