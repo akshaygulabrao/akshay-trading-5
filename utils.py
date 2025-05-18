@@ -35,10 +35,17 @@ def setup_prod():
     
     return KEYID, private_key, env
 
+def setup_client():
+    keyid,private_key,env = setup_prod()
+    client = KalshiHttpClient(keyid,private_key,env)
+    return client
+
+kalshi_url = 'https://api.elections.kalshi.com'
 urls = {'status': '/trade-api/v2/exchange/status',
         'markets': '/trade-api/v2/markets',
         'positions':'/trade-api/v2/portfolio/positions',
         'orders':'/trade-api/v2/portfolio/orders',
+        'fills' :'/trade-api/v2/portfolio/fills'
         }
 
 def get_events_hardcoded():
