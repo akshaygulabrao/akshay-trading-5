@@ -50,6 +50,9 @@ urls = {'status': '/trade-api/v2/exchange/status',
 
 
 def get_events_hardcoded():
+    """
+    returns mapping of kalshi_sites to events
+    """
     today = now("KNYC")
     days = [today.strftime("%y%b%d").upper()]
     if today.hour > 10:

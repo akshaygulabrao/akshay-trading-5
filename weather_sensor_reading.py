@@ -52,7 +52,9 @@ def test_latest_sensor_reading():
     for k_site in weather_info.kalshi_sites:
         n_site = weather_info.kalshi_site2nws_site[k_site]
         (d,t),(md,mt) = latest_sensor_reading(n_site)
-        logger.debug(f"{k_site}: current: {d},{t} max: {md} {mt}")
+        print(f"{k_site}: current: {d},{t} max: {md} {mt}")
+
+
 
 if __name__ == "__main__":
     test_latest_sensor_reading()
