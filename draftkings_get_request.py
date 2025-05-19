@@ -13,7 +13,7 @@ kalshi_url = 'https://api.elections.kalshi.com'
 urls['markets']
 
 
-async def initialize_draftkings_odds():
+async def initialize_draftkings_odds(include_not_started=False):
     t0 = asyncio.create_task(draftkings_init.fetch_all_sports())
     await t0
     sports = list(draftkings_init.draftkings_links.keys())
@@ -31,9 +31,12 @@ async def initialize_draftkings_odds():
     name2kalshi_mkts = {}
     sport2names = {}
 
+    status_list = ['STARTED']
+    if include_not_started:
+        status_list.append('NOT_STARTED')
     for sport in sports:
         for events in sport_json[sport]['events']:
-            if events['status'] in ['STARTED']:
+            if events['status'] in status_list:
                 if sport not in sports2events_id:
                     sports2events_id[sport] = []
                 sports2events_id[sport].append(events['id'])
