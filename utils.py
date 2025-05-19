@@ -8,7 +8,7 @@ import requests
 
 from original.clients import KalshiHttpClient, KalshiWebSocketClient, Environment
 
-from weather_info import sites2tz
+from weather_info import nws_site2tz
 
 def setup_prod():
     """
@@ -48,17 +48,19 @@ urls = {'status': '/trade-api/v2/exchange/status',
         'fills' :'/trade-api/v2/portfolio/fills'
         }
 
+
 def get_events_hardcoded():
-    today = datetime.now() + timedelta(hours=3)
-    days = [today.strftime("%y%^b%d")]
+    today = now("KNYC")
+    days = [today.strftime("%y%b%d").upper()]
     if today.hour > 10:
-        days.append((today + timedelta(days=1)).strftime("%y%^b%d"))
+        days.append((today + timedelta(days=1)).strftime("%y%b%d").upper())
     sites = ["NY", "CHI","MIA","AUS","DEN","LAX","PHIL"]
-    evts = []
+    site2days = {}
     for site in sites:
+        site2days[site] = []
         for day in days:
-            evts.append(f"KXHIGH{site}-{day}")
-    return evts
+            site2days[site].append(f"KXHIGH{site}-{day}")
+    return site2days
 
 def get_events_kalshi():
     """
@@ -66,7 +68,7 @@ def get_events_kalshi():
     events
     """
     url = "https://api.elections.kalshi.com/trade-api/v2/events"
-    sites = ["NY", "CHI","MIA","AUS","DEN","LAX","PHIL"]
+    sites = ["NY", "CHI","MIA","AUS","DEN","PHIL","LAX"]
     evts = []
     for site in sites:
         params = {"series_ticker": f"KXHIGH{site}","status": "open"}
@@ -74,21 +76,28 @@ def get_events_kalshi():
         evts.extend([evt["event_ticker"] for evt in response["events"]])
     return evts
 
-def get_markets():
-    evts = get_events_hardcoded()
+def get_markets(event,site):
     url = "https://api.elections.kalshi.com/trade-api/v2/markets"
     markets = []
-    for e in evts:
-        params = {"event_ticker": e,"status": "open"}
-        response = requests.get(url, params=params).json()
-        markets.extend([m["ticker"] for m in response["markets"]])
+    params = {"event_ticker": event,"status": "open"}
+    response = requests.get(url, params=params)
+    assert response.status_code == 200
+    response = response.json()
+    markets = [i['ticker'] for i in response['markets']]
+    markets = sorted(markets,key=lambda x: float(x[5 + len(site) + 9 + 2:]))
     return markets
 
 def now(site="KLAX"):
-    time = datetime.now(tz=ZoneInfo(sites2tz[site]))
+    time = datetime.now(tz=ZoneInfo(nws_site2tz[site]))
     return time
 
 if __name__ == "__main__":
-    print(get_events_hardcoded())
-    print(get_events_kalshi())
-    print(get_markets())
+    site2days = get_events_hardcoded()
+    for site in site2days.keys():
+        print(site)
+        for event in site2days[site]:
+            print(' ' * 2, event)
+            m = get_markets(event)
+            for mkt in m:
+                print(' ' * 4, mkt)
+

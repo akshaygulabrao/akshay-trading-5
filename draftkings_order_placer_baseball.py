@@ -15,6 +15,8 @@ import uuid
 from utils import now, setup_prod,urls
 from original.clients import KalshiHttpClient
 from sport_pricing import odds2
+from order_placer import place_order,cancel_order,get_positions,get_resting_orders
+from draftkings_get_request import initialize_draftkings_odds
 
 # Configure logging
 logging.basicConfig(
@@ -361,7 +363,7 @@ async def cleanup_inactive_names() -> None:
         except Exception as e:
             logging.error(f"Error during cleanup: {str(e)}", exc_info=True)
         
-        await asyncio.sleep(600)  # Run every 10 minutes
+        await asyncio.sleep(600)
 
 async def odds() -> None:
     """Main ZMQ listener for odds data."""
@@ -395,33 +397,11 @@ async def odds() -> None:
 
 async def main() -> None:
     """Main async entry point with state loading adjusted for timestamps."""
+    global sports2name,name2odds,name2mkt
     try:
-        state_path = Path('app_state.json')
-        if state_path.exists():
-            with open(state_path, 'r') as f:
-                state = json.load(f)
-                
-                # Restore sports2name
-                sports2name.clear()
-                for sport, names in state.get('sports2name', {}).items():
-                    sports2name[sport].update(names)
-                
-                # Restore other dictionaries
-                name2mkt.update(state.get('name2mkt', {}))
-                name2odds.update(state.get('name2odds', {}))
-                mkt2bidask_id.update({mkt: tuple(bidask) for mkt, bidask in state.get('mkt2bidask_id', {}).items()})
-                name2update.update(state.get('name2update', {}))
-                
-                # Convert ISO strings back to timestamps if necessary
-                name2last_update.clear()
-                for name, timestamp in state.get('name2last_update', {}).items():
-                    if isinstance(timestamp, str):  # ISO format
-                        dt = datetime.datetime.fromisoformat(timestamp)
-                        name2last_update[name] = int(dt.timestamp())
-                    else:
-                        name2last_update[name] = timestamp
-                
-            logging.info("Loaded initial application state")
+        sports2name, name2odds, name2mkt = await asyncio.create_task(initialize_draftkings_odds(include_not_started=True))
+        
+        logging.info("Loaded initial application state")
     except (JSONDecodeError, ValueError, KeyError) as e:
         logging.error(f"Invalid data in app_state.json: {str(e)}")
     except Exception as e:
@@ -432,7 +412,7 @@ async def main() -> None:
         asyncio.create_task(save_state_periodically()),
         asyncio.create_task(match_mkts()),
         asyncio.create_task(cleanup_inactive_names()),
-        asyncio.create_task(update_positions_periodically()),  # New task
+        asyncio.create_task(update_positions_periodically()),
     ]
 
     try:

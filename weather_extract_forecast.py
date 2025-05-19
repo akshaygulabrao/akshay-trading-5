@@ -6,7 +6,7 @@ from utils import get_markets
 import datetime
 from io import StringIO
 from collections import defaultdict
-from weather_info import sites2tz,sites2forecast
+from weather_info import nws_site2tz,nws_site2forecast
 
 import requests
 
@@ -14,7 +14,7 @@ def extract_forecast(site):
     """
     Returns the maximum temperature and its datetime for the specified date.
     """
-    url = sites2forecast.get(site)
+    url = nws_site2forecast.get(site)
     if not url:
         raise Exception("URL not found")
     
@@ -67,5 +67,5 @@ def forecast_day(site,date):
     return max_temp_time, max_temp
 
 if __name__ == "__main__":
-    for site in sites2forecast.keys():
+    for site in nws_site2forecast.keys():
         print(extract_forecast(site))

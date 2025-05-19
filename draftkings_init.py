@@ -108,7 +108,7 @@ headers = {
     'priority': 'u=1, i',
 }
 draftkings_links = {
-    "Golf": "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/79720/categories/484/subcategories/4508",
+    # "Golf": "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/79720/categories/484/subcategories/4508",
     "Baseball": "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/84240",
     "Basketball": "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/42648",
     "Hockey" : "https://sportsbook-nash.draftkings.com/api/sportscontent/dkusnj/v1/leagues/42133",

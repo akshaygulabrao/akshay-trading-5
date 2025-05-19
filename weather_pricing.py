@@ -4,7 +4,7 @@ import pandas as pd
 from utils import get_markets
 from weather_sensor_reading import sensor_reading_history
 from weather_extract_forecast import extract_forecast
-from weather_info import sites2city
+from weather_info import nws_site2kalshi_site
 
 import requests
 
@@ -20,6 +20,6 @@ def contract_price(forecasted_max,hours_till,spread_error,strikes_allowed, max_s
     return prob
 
 mkts = get_markets()
-for site in sites2city.keys():
-    site_mkts = [i for i in mkts if i.startswith(f"KXHIGH{sites2city[site]}")]
+for site in nws_site2kalshi_site.keys():
+    site_mkts = [i for i in mkts if i.startswith(f"KXHIGH{nws_site2kalshi_site[site]}")]
     df = sensor_reading_history(site)
