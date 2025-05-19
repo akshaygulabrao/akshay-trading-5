@@ -10,11 +10,12 @@ from weather_info import nws_site2tz,nws_site2forecast
 
 import requests
 
-def extract_forecast(site):
+def extract_forecast(nws_site):
     """
     Returns the maximum temperature and its datetime for the specified date.
     """
-    url = nws_site2forecast.get(site)
+    assert nws_site in nws_site2forecast
+    url = nws_site2forecast.get(nws_site)
     if not url:
         raise Exception("URL not found")
     
@@ -26,7 +27,7 @@ def extract_forecast(site):
     try:
         table = soup.find_all('table')[4]
     except IndexError:
-        raise Exception(f"Site {site} is down.")
+        raise Exception(f"Site {nws_site} is down.")
 
     
     forecast_dict = defaultdict(list)
@@ -52,20 +53,20 @@ def extract_forecast(site):
     df = df.set_index("Date")
     return df
 
-def forecast_day(site,date):
-    df = extract_forecast(site)
+def forecast_day(nws_site):
+    df = extract_forecast(nws_site)
+    hr = df.resample('D')[[df.columns[1]]].idxmax().values
+    tmp = df.resample('D')[[df.columns[1]]].max().astype(float).values
+    res = []
+    for i in range(len(hr)):
+        dt = hr[i][0].astype('datetime64[s]').item()
+        formatted_date = dt.strftime("%y%b%d").upper()
+        hour = dt.hour
+        res.append((formatted_date,hour,float(tmp[i][0])))
+    return res,df.iloc[0,1]
 
-    df_date = df[df.index.date == date]
     
-    if len(df_date) == 0:
-        return None, None
-    
-    # Get the time of maximum temperature for the specific date
-    max_temp_time = df_date['Temperature (°F)'].idxmax()
-    max_temp = df_date['Temperature (°F)'].max()
-    
-    return max_temp_time, max_temp
 
 if __name__ == "__main__":
     for site in nws_site2forecast.keys():
-        print(extract_forecast(site))
+        print(forecast_day(site))

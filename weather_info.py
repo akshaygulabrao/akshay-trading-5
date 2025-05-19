@@ -18,6 +18,8 @@ nws_site2kalshi_site = {
     "KLAX": "LAX"
 }
 
+kalshi_sites = ["NY", "CHI", "AUS", "MIA", "DEN", "PHIL", "LAX"]
+
 kalshi_site2nws_site = {v:k for k,v in nws_site2kalshi_site.items()}
 
 # each site reports a more accurate weather value

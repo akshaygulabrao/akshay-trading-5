@@ -62,6 +62,13 @@ def get_events_hardcoded():
             site2days[site].append(f"KXHIGH{site}-{day}")
     return site2days
 
+def test_get_events_hardcoded():
+    s2d = get_events_hardcoded()
+    for site in s2d.keys():
+        print(site)
+        for day in s2d[site]:
+            print(" " * 2, day)
+
 def get_events_kalshi():
     """
     Used to verify correctness of hardcoded
@@ -84,20 +91,15 @@ def get_markets(event,site):
     assert response.status_code == 200
     response = response.json()
     markets = [i['ticker'] for i in response['markets']]
-    markets = sorted(markets,key=lambda x: float(x[5 + len(site) + 9 + 2:]))
+    markets = sorted(markets,key=lambda x: extract_num_from_mkt(x,site))
     return markets
+
+def extract_num_from_mkt(x,site):
+    return float(x[5 + len(site) + 9 + 2:])
 
 def now(site="KLAX"):
     time = datetime.now(tz=ZoneInfo(nws_site2tz[site]))
     return time
 
 if __name__ == "__main__":
-    site2days = get_events_hardcoded()
-    for site in site2days.keys():
-        print(site)
-        for event in site2days[site]:
-            print(' ' * 2, event)
-            m = get_markets(event)
-            for mkt in m:
-                print(' ' * 4, mkt)
-
+    test_get_events_hardcoded()
