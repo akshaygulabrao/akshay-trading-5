@@ -3,8 +3,6 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import numpy as np
 from utils import get_markets
-import datetime
-from io import StringIO
 from collections import defaultdict
 from weather_info import nws_site2tz,nws_site2forecast
 
@@ -65,8 +63,9 @@ def forecast_day(nws_site):
         res.append((formatted_date,hour,float(tmp[i][0])))
     return res,df.iloc[0,1]
 
-    
-
-if __name__ == "__main__":
+def test_forecast_day():
     for site in nws_site2forecast.keys():
         print(forecast_day(site))
+
+if __name__ == "__main__":
+    test_forecast_day()

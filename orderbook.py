@@ -11,7 +11,7 @@ import zmq
 import websockets
 from loguru import logger
 
-from original.clients import KalshiWebSocketClient
+from kalshi_ref import KalshiWebSocketClient
 import utils
 
 

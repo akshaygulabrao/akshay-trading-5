@@ -4,7 +4,7 @@ import time
 import requests
 import uuid
 from utils import kalshi_url,urls,setup_prod,setup_client
-from original import clients
+from . import kalshi_ref
 
 """
 placement/cancellation order approximation: 16.3 seconds for 100 orders
@@ -15,7 +15,7 @@ def place_order(client,t,a,p,q,limit_order=True,expiration_ts=None,post_only=Fal
     """
     client,ticker,action,price,quantity,order_type
     """
-    assert isinstance(client, clients.KalshiHttpClient)
+    assert isinstance(client, kalshi_ref.KalshiHttpClient)
     assert a == 'buy' or a == 'sell'
     private_order_id = str(uuid.uuid4())
     params = {
@@ -33,13 +33,13 @@ def place_order(client,t,a,p,q,limit_order=True,expiration_ts=None,post_only=Fal
     return public_order_id
     
 def cancel_order(client,public_order_id):
-    assert isinstance(client, clients.KalshiHttpClient)
+    assert isinstance(client, kalshi_ref.KalshiHttpClient)
     response = client.delete(f'/trade-api/v2/portfolio/orders/{public_order_id}')
     order_status = response['order']['status']
     return order_status == 'canceled'
 
 def get_resting_orders(client, ticker):
-    assert isinstance(client, clients.KalshiHttpClient)
+    assert isinstance(client, kalshi_ref.KalshiHttpClient)
     params = {
         'ticker' : ticker,
         'status' : 'resting',
@@ -57,7 +57,7 @@ def get_resting_orders(client, ticker):
     return resting_orders
 
 def get_positions(client):
-    assert isinstance(client, clients.KalshiHttpClient)
+    assert isinstance(client, kalshi_ref.KalshiHttpClient)
     params = {
         'count_filter' : 'position',
         'limit' : 1000
@@ -76,7 +76,7 @@ def get_positions(client):
 
 if __name__ == "__main__":
     client = setup_client()
-    assert isinstance(client, clients.KalshiHttpClient)
+    assert isinstance(client, kalshi_ref.KalshiHttpClient)
     practice_order_ticker = 'KXLLMCHESS-26'
     
     # places and cancels orders repeatedly

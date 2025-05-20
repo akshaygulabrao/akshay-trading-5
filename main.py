@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from cryptography.hazmat.primitives import serialization
 import asyncio
 
-from clients import KalshiHttpClient, KalshiWebSocketClient, Environment
+from kalshi_ref import KalshiHttpClient, KalshiWebSocketClient, Environment
 
 # Load environment variables
 load_dotenv()

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 import requests
 
-from original.clients import KalshiHttpClient, KalshiWebSocketClient, Environment
+from kalshi_ref import KalshiHttpClient, KalshiWebSocketClient, Environment
 
 from weather_info import nws_site2tz
 
