@@ -5,7 +5,7 @@ mitmproxy
 mitmdump
 mitmproxy*
 mitmweb
-prompt.txt
+*.txt
 orderbook_logs
 forecasts
 build/
@@ -15,3 +15,4 @@ _opam
 at5/_build
 laptop1.txt
 sports/
+sensors
