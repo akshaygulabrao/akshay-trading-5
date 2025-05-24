@@ -16,12 +16,15 @@ from cryptography.exceptions import InvalidSignature
 
 import websockets
 
+
 class Environment(Enum):
     DEMO = "demo"
     PROD = "prod"
 
+
 class KalshiBaseClient:
     """Base client class for interacting with the Kalshi API."""
+
     def __init__(
         self,
         key_id: str,
@@ -55,7 +58,7 @@ class KalshiBaseClient:
         timestamp_str = str(current_time_milliseconds)
 
         # Remove query params from path
-        path_parts = path.split('?')
+        path_parts = path.split("?")
 
         msg_string = timestamp_str + method + path_parts[0]
         signature = self.sign_pss_text(msg_string)
@@ -70,22 +73,24 @@ class KalshiBaseClient:
 
     def sign_pss_text(self, text: str) -> str:
         """Signs the text using RSA-PSS and returns the base64 encoded signature."""
-        message = text.encode('utf-8')
+        message = text.encode("utf-8")
         try:
             signature = self.private_key.sign(
                 message,
                 padding.PSS(
                     mgf=padding.MGF1(hashes.SHA256()),
-                    salt_length=padding.PSS.DIGEST_LENGTH
+                    salt_length=padding.PSS.DIGEST_LENGTH,
                 ),
-                hashes.SHA256()
+                hashes.SHA256(),
             )
-            return base64.b64encode(signature).decode('utf-8')
+            return base64.b64encode(signature).decode("utf-8")
         except InvalidSignature as e:
             raise ValueError("RSA sign PSS failed") from e
 
+
 class KalshiHttpClient(KalshiBaseClient):
     """Client for handling HTTP connections to the Kalshi API."""
+
     def __init__(
         self,
         key_id: str,
@@ -117,9 +122,7 @@ class KalshiHttpClient(KalshiBaseClient):
         """Performs an authenticated POST request to the Kalshi API."""
         self.rate_limit()
         response = requests.post(
-            self.host + path,
-            json=body,
-            headers=self.request_headers("POST", path)
+            self.host + path, json=body, headers=self.request_headers("POST", path)
         )
         self.raise_if_bad_response(response)
         return response.json()
@@ -128,9 +131,7 @@ class KalshiHttpClient(KalshiBaseClient):
         """Performs an authenticated GET request to the Kalshi API."""
         self.rate_limit()
         response = requests.get(
-            self.host + path,
-            headers=self.request_headers("GET", path),
-            params=params
+            self.host + path, headers=self.request_headers("GET", path), params=params
         )
         self.raise_if_bad_response(response)
         return response.json()
@@ -141,14 +142,14 @@ class KalshiHttpClient(KalshiBaseClient):
         response = requests.delete(
             self.host + path,
             headers=self.request_headers("DELETE", path),
-            params=params
+            params=params,
         )
         self.raise_if_bad_response(response)
         return response.json()
 
     def get_balance(self) -> Dict[str, Any]:
         """Retrieves the account balance."""
-        return self.get(self.portfolio_url + '/balance')
+        return self.get(self.portfolio_url + "/balance")
 
     def get_exchange_status(self) -> Dict[str, Any]:
         """Retrieves the exchange status."""
@@ -164,18 +165,20 @@ class KalshiHttpClient(KalshiBaseClient):
     ) -> Dict[str, Any]:
         """Retrieves trades based on provided filters."""
         params = {
-            'ticker': ticker,
-            'limit': limit,
-            'cursor': cursor,
-            'max_ts': max_ts,
-            'min_ts': min_ts,
+            "ticker": ticker,
+            "limit": limit,
+            "cursor": cursor,
+            "max_ts": max_ts,
+            "min_ts": min_ts,
         }
         # Remove None values
         params = {k: v for k, v in params.items() if v is not None}
-        return self.get(self.markets_url + '/trades', params=params)
+        return self.get(self.markets_url + "/trades", params=params)
+
 
 class KalshiWebSocketClient(KalshiBaseClient):
     """Client for handling WebSocket connections to the Kalshi API."""
+
     def __init__(
         self,
         key_id: str,
@@ -187,29 +190,28 @@ class KalshiWebSocketClient(KalshiBaseClient):
         self.url_suffix = "/trade-api/ws/v2"
         self.message_id = 1  # Add counter for message IDs
 
-    async def connect(self,tickers):
+    async def connect(self, tickers):
         """Establishes a WebSocket connection using authentication."""
         host = self.WS_BASE_URL + self.url_suffix
         auth_headers = self.request_headers("GET", self.url_suffix)
-        async with websockets.connect(host, additional_headers=auth_headers) as websocket:
+        async with websockets.connect(
+            host, additional_headers=auth_headers
+        ) as websocket:
             self.ws = websocket
             await self.on_open(tickers)
             await self.handler()
 
-    async def on_open(self,tickers):
+    async def on_open(self, tickers):
         """Callback when WebSocket connection is opened."""
         logger.info("WebSocket connection opened.")
         await self.subscribe_to_tickers(tickers)
 
-    async def subscribe_to_tickers(self,tickers):
+    async def subscribe_to_tickers(self, tickers):
         """Subscribe to ticker updates for all markets."""
         subscription_message = {
             "id": self.message_id,
             "cmd": "subscribe",
-            "params": {
-                "channels": ["orderbook_delta"],
-                "market_tickers": tickers
-            }
+            "params": {"channels": ["orderbook_delta"], "market_tickers": tickers},
         }
         await self.ws.send(json.dumps(subscription_message))
         self.message_id += 1
@@ -234,4 +236,9 @@ class KalshiWebSocketClient(KalshiBaseClient):
 
     async def on_close(self, close_status_code, close_msg):
         """Callback when WebSocket connection is closed."""
-        logger.info("WebSocket connection closed with code:", close_status_code, "and message:", close_msg)
+        logger.info(
+            "WebSocket connection closed with code:",
+            close_status_code,
+            "and message:",
+            close_msg,
+        )
