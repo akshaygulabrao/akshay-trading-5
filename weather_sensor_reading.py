@@ -61,9 +61,8 @@ async def sensorHistoryAsync(nws_site):
     return df
 
 
-async def latest_sensor_reading(nws_site):
-    task = asyncio.create_task(sensorHistoryAsync(nws_site))
-    df = await asyncio.gather(task)
+async def latest_sensor_reading_async(nws_site):
+    df = await sensorHistoryAsync(nws_site)
     last_entry = df.iloc[-1]
     d = last_entry.name.to_pydatetime()
     d = d.replace(tzinfo=ZoneInfo(utils.nws_site2tz[nws_site]))
@@ -91,5 +90,23 @@ async def test_sensorHistoryAsync():
             print(result.head())
 
 
+async def test_latestSensorReading_async():
+    tasks = [latest_sensor_reading_async(nws_site) for nws_site in nws_sites]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for site, result in zip(nws_sites, results):
+        if isinstance(result, Exception):
+            logger.error(f"Exception occurred for {site}: {result}")
+            raise KeyError(f"Exception for {site}")
+        (d, t), (max_dt, max_temp) = result
+        if None in [d, t, max_dt, max_temp]:
+            raise KeyError(f"FAIL for {site}")
+        print(f"{site}: {d} Temp: {t}")
+
+
+async def main():
+    await test_sensorHistoryAsync()
+    await test_latestSensorReading_async()
+
+
 if __name__ == "__main__":
-    asyncio.run(test_sensorHistoryAsync())
+    asyncio.run(main())
