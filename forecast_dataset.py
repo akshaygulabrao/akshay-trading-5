@@ -59,7 +59,7 @@ async def forecasts():
         forecasts = await asyncio.gather(*tasks, return_exceptions=True)
         n = dt.datetime.now()
         nextFore = n.replace(minute=1, second=0, microsecond=0)
-        nextFore = nextFore + dt.timedelta(hours=10)
+        nextFore = nextFore + dt.timedelta(hours=1)
         tt_nextFore = nextFore - n
         await asyncio.sleep(tt_nextFore.total_seconds())
 
