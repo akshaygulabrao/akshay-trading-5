@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QTabWidget,
 )
-from PySide6.QtCore import QThread
+from PyQt6.QtCore import QThread, pyqtSignal
 from collections import defaultdict
 
 import utils

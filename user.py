@@ -1,14 +1,25 @@
 import asyncio
+
+from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
 from loguru import logger
+
+from utils import setup_client
 
 
 class User:
     def __init__(self):
-        pass
+        self.client = setup_client()
+        self.label = None
 
-    async def run(self):
+    def getBalance(self):
+        return self.client.get_balance()
+
+    async def getBalanceAsync(self):
+        assert self.label is not None
         while True:
-            await asyncio.sleep(1)
+            self.balance = self.client.get_balance()
+            self.label.setText(str(self.balance))
+            await asyncio.sleep(0.5)
 
 
 if __name__ == "__main__":

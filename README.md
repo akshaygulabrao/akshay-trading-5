@@ -11,3 +11,8 @@ The optimal price of each contract should be expected probability of the tempera
 The best data sources that are used to evaluate the high each day is the climatological report by the NWS for each site. Each site is at an airport, which reports measurements every 5 minutes. Each NWS site also publishes forecast data every hour, but it is unknown how effective these forecast measurements actually are.
 
 There is often rounding error with each measurement because the sensor rounds to the nearest celsius degree, causing variance of 2 degrees between measurements. It's unclear how much noise happens in these short term durations as well.
+
+## Visualization
+`app.py` contains information to start a GUI app that visualizes the orderbook, positions, forecasts, and the latest sensor readings.
+
+![alt text](images/trading-algorithm.png)

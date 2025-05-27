@@ -9,6 +9,7 @@ import requests
 from kalshi_ref import KalshiHttpClient, KalshiWebSocketClient, Environment
 
 from weather_info import nws_site2tz
+from weather_info import kalshi_sites
 
 
 def setup_prod():
@@ -93,15 +94,18 @@ def get_events_kalshi():
     return evts
 
 
-def get_markets(event, site):
+def get_markets():
     url = "https://api.elections.kalshi.com/trade-api/v2/markets"
     markets = []
-    params = {"event_ticker": event, "status": "open"}
-    response = requests.get(url, params=params)
-    assert response.status_code == 200
-    response = response.json()
-    markets = [i["ticker"] for i in response["markets"]]
-    markets = sorted(markets, key=lambda x: extract_num_from_mkt(x, site))
+    for site in kalshi_sites:
+        seriesTkr = f"KXHIGH{site}"
+        params = {"series_ticker": seriesTkr, "status": "open"}
+        response = requests.get(url, params=params)
+        assert response.status_code == 200
+        response = response.json()
+        tkrs = [i["ticker"] for i in response["markets"]]
+        tkrs = sorted(tkrs, key=lambda x: extract_num_from_mkt(x, site))
+        markets.extend(tkrs)
     return markets
 
 
