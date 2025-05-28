@@ -40,24 +40,26 @@ async def getReading(nwsSite):
     tz_name = nws_site2tz[nwsSite]  # Use the correct key
     tz = ZoneInfo(tz_name)
 
-    forecast = await latest_sensor_reading_async(nwsSite)
     fdir = f"sensors/{nwsSite}"
     os.makedirs(fdir, exist_ok=True)
     fpath = f"{fdir}/sensorData.csv"
+    
+    # Get current readings first
+    snsrReading = sensor_reading_history(nwsSite)
+    if snsrReading.empty:
+        logger.warning(f"No sensor readings available for {nwsSite}")
+        return
+    
+    snsrReading.index = snsrReading.index.tz_convert(tz)
+    
     if os.path.exists(fpath):
         snsrHist = pd.read_csv(fpath, index_col=0, parse_dates=True)
         snsrHist.index = pd.to_datetime(snsrHist.index, utc=True).tz_convert(tz)
-        snsrReading = sensor_reading_history(nwsSite)
-        snsrReading.index = snsrReading.index.tz_convert(tz)
         new_readings = snsrReading[~snsrReading.index.isin(snsrHist.index)]
-
+        
         if not new_readings.empty:
             snsrReading = pd.concat([snsrHist, new_readings])
-    else:
-        if not snsrReading.empty:
-            snsrReading.index = snsrReading.index.tz_convert(tz)
-        else:
-            print(f"No sensor readings available for {nwsSite}")
+    
     snsrReading.index = snsrReading.index.tz_localize(None)
     snsrReading.to_csv(fpath)
     logger.info(f"Fetched sensor readings for {nwsSite}")
