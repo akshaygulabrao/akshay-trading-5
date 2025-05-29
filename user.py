@@ -14,14 +14,6 @@ class User:
     def getBalance(self):
         return self.client.get_balance()
 
-    async def getBalanceAsync(self):
-        assert self.label is not None
-        while True:
-            self.balance = self.client.get_balance()
-            self.label.setText(str(self.balance))
-            await asyncio.sleep(0.5)
-
-
 if __name__ == "__main__":
     u = User()
     try:
