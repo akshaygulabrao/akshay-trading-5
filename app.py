@@ -1,4 +1,5 @@
 import sys
+import asyncio
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -7,15 +8,18 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QTabWidget,
+    QMenu,
+    QMenuBar
 )
 from PySide6.QtCore import (
     Qt,
     QObject
 )
+from PySide6.QtGui import (
+    QKeySequence
+)
 
 import PySide6.QtAsyncio as QtAsyncio
-from loguru import logger
-
 from user import User
 
 
@@ -79,15 +83,36 @@ class TradingApp(QMainWindow):
         main_layout.addWidget(tab_widget)
         self.setCentralWidget(main_widget)
 
+        # Create menu bar
+        menubar = QMenuBar()
+        file_menu = QMenu("File")
+        
+        # Add close action with Cmd+W shortcut
+        close_action = file_menu.addAction("Close")
+        close_action.setShortcut(QKeySequence("Ctrl+W"))
+        close_action.triggered.connect(self.close)
+        
+        menubar.addMenu(file_menu)
+        
+        # Set native menu bar on macOS
+        if sys.platform == 'darwin':
+            menubar.setNativeMenuBar(True)
+        
+        self.setMenuBar(menubar)
+
+
 class Balance(QObject):
     def __init__(self):
+        self.coroutines = []
         pass
-
-
+    async def start(self):
+        while True:
+            await asyncio.sleep(1)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = TradingApp()
+    balance = Balance()
 
     window.show()
-    QtAsyncio.run()
+    QtAsyncio.run(balance.start(),handle_sigint=True)
