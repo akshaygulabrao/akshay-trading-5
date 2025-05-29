@@ -1,6 +1,5 @@
-import asyncio
 import sys
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
     QWidget,
@@ -9,8 +8,12 @@ from PyQt6.QtWidgets import (
     QLabel,
     QTabWidget,
 )
-from PyQt6.QtCore import Qt
-import qasync
+from PySide6.QtCore import (
+    Qt,
+    QObject
+)
+
+import PySide6.QtAsyncio as QtAsyncio
 from loguru import logger
 
 from user import User
@@ -76,22 +79,15 @@ class TradingApp(QMainWindow):
         main_layout.addWidget(tab_widget)
         self.setCentralWidget(main_widget)
 
-    def startAsyncTasks(self):
-        asyncio.create_task(self.user.getBalanceAsync())
+class Balance(QObject):
+    def __init__(self):
+        pass
 
-
-async def main():
-    app = QApplication(sys.argv)
-    window = TradingApp()
-    window.startAsyncTasks()
-    window.show()
-
-    await qasync.QEventLoop(app).run_forever()
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except asyncio.exceptions.CancelledError:
-        logger.error("keyboard interrupt")
-        pass
+    app = QApplication(sys.argv)
+    window = TradingApp()
+
+    window.show()
+    QtAsyncio.run()

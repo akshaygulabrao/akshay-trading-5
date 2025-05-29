@@ -1,6 +1,6 @@
 import asyncio
 
-from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
 from loguru import logger
 
 from utils import setup_client
