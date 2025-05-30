@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import (
     Qt,
     QObject,
-    Signal
+    Signal,
+    Slot
 )
 from PySide6.QtGui import (
     QKeySequence
@@ -27,7 +28,7 @@ from user import User
 
 class TradingApp(QMainWindow):
 
-    setBal = Signal(float)
+    setBal = Signal(str)
 
     def __init__(self,user : User):
         assert isinstance(user,User)
@@ -104,25 +105,25 @@ class TradingApp(QMainWindow):
             menubar.setNativeMenuBar(True)
         
         self.setMenuBar(menubar)
-        self.setBal.connect()
+        self.setBal.connect(self.setBalance)
 
-    
+    @Slot(str)
     def setBalance(self,bal):
         self.balance.setText(bal)
 
 
 class Balance(QObject):
-    def __init__(self,user: User, balance_label: QLabel):
+    def __init__(self,user: User, window: QMainWindow):
         assert isinstance(user, User)
-        assert isinstance(balance_label,QLabel)
+        assert isinstance(window,QMainWindow)
         self.user = user
-        self.valLabel = balance_label
+        self.window = window
 
     async def render(self):
         while True:
-            float_val = user.getBalance()
+            float_val = user.getBalance()['balance']
             str_val = f"$ {float_val:.02f}"
-            self.valLabel.setText(str_val)
+            self.window.setBal.emit(str_val)
             await asyncio.sleep(0.2)
 
 
@@ -131,7 +132,7 @@ if __name__ == "__main__":
     user = User()
     app = QApplication(sys.argv)
     window = TradingApp(user)
-    balance = Balance(user,window.balance)
+    balance = Balance(user,window)
 
     window.show()
     QtAsyncio.run(balance.render(),handle_sigint=True)
