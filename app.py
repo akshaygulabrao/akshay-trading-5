@@ -23,12 +23,12 @@ from PySide6.QtGui import (
 )
 import PySide6.QtAsyncio as QtAsyncio
 
-from utils import setup_client
 from user import User
 
 class TradingApp(QMainWindow):
 
     setBal = Signal(str)
+    exchStatus = Signal(str)
 
     def __init__(self,user : User):
         assert isinstance(user,User)
@@ -53,7 +53,7 @@ class TradingApp(QMainWindow):
         balance_layout = QVBoxLayout(balance_widget)
         balance_label = QLabel("Account Balance")
         balance_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.balance = QLabel("$1,234,567.89")
+        self.balance = QLabel("")
 
         self.balance.setAlignment(Qt.AlignmentFlag.AlignCenter)
         balance_layout.addWidget(balance_label)
@@ -64,10 +64,10 @@ class TradingApp(QMainWindow):
         status_layout = QVBoxLayout(status_widget)
         status_label = QLabel("Exchange Status")
         status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        status_value = QLabel("OPEN")
-        status_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_value = QLabel("")
+        self.status_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
         status_layout.addWidget(status_label)
-        status_layout.addWidget(status_value)
+        status_layout.addWidget(self.status_value)
 
         # Add widgets to top pane
         top_layout.addWidget(balance_widget, 1)
@@ -106,10 +106,17 @@ class TradingApp(QMainWindow):
         
         self.setMenuBar(menubar)
         self.setBal.connect(self.setBalance)
+        self.exchStatus.connect(self.setExchStatus)
 
     @Slot(str)
     def setBalance(self,bal):
+        assert isinstance(self.balance, QLabel)
         self.balance.setText(bal)
+
+    @Slot(str)
+    def setExchStatus(self,status:str):
+        assert isinstance(self.status_value,QLabel)
+        self.status_value.setText(status)
 
 
 class Balance(QObject):
@@ -119,13 +126,22 @@ class Balance(QObject):
         self.user = user
         self.window = window
 
-    async def render(self):
+    async def stream(self):
         while True:
-            float_val = user.getBalance()['balance']
+            float_val = user.getBalance()['balance'] / 100
             str_val = f"$ {float_val:.02f}"
             self.window.setBal.emit(str_val)
             await asyncio.sleep(0.2)
 
+class Exchange(QObject):
+    def __init__(self,window: QMainWindow):
+        assert isinstance(window, QMainWindow)
+        self.window = window
+    
+    async def stream(self):
+        while True:
+            self.window.exchStatus.emit("open")
+            await asyncio.sleep(0.2)
 
 
 if __name__ == "__main__":
@@ -133,6 +149,12 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = TradingApp(user)
     balance = Balance(user,window)
+    exchange = Exchange(window)
+
+    tasks = [balance.stream(), exchange.stream()]
+
+    async def run_streams(tasks):
+        await asyncio.gather(*tasks)
 
     window.show()
-    QtAsyncio.run(balance.render(),handle_sigint=True)
+    QtAsyncio.run(run_streams(tasks),handle_sigint=True)

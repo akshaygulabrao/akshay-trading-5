@@ -11,8 +11,11 @@ class User:
         self.client = setup_client()
         self.label = None
 
-    def getBalance(self):
-        return self.client.get_balance()
+    def getBalance(self) -> dict:
+        result = self.client.get_balance()
+        assert isinstance(result, dict)
+        assert "balance" in result
+        return result
 
 if __name__ == "__main__":
     u = User()
