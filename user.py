@@ -17,6 +17,7 @@ class User:
         assert "balance" in result
         return result
 
+
 if __name__ == "__main__":
     u = User()
     try:

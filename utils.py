@@ -1,6 +1,6 @@
 import os
 from cryptography.hazmat.primitives import serialization
-from datetime import datetime, timedelta,time
+from datetime import datetime, timedelta, time
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -117,22 +117,30 @@ def now(site="KLAX"):
     time = datetime.now(tz=ZoneInfo(nws_site2tz[site]))
     return time
 
-def store_status():
-    # Get today's date
+
+def exchange_status() -> tuple[timedelta, bool]:
+    """
+    Returns tuple (timedelta time_left, bool is_open)
+    """
+    # Get current time in New York timezone
     current_datetime = datetime.now(tz=ZoneInfo("America/New_York"))
     today = current_datetime.date()
-    
+
     # Define opening and closing times
     opening_time = time(8, 0)  # 8:00 AM
-    closing_time = time(3, 0)   # 3:00 AM
-    
-    # Construct datetime objects for today's opening and tomorrow's closing
-    today_opening = datetime.combine(today, opening_time)
-    tomorrow_closing = datetime.combine(today + timedelta(days=1), closing_time)
-    
+    closing_time = time(3, 0)  # 3:00 AM
+
+    # Construct datetime objects for today's opening and tomorrow's closing with NY timezone
+    today_opening = datetime.combine(today, opening_time).replace(
+        tzinfo=ZoneInfo("America/New_York")
+    )
+    tomorrow_closing = datetime.combine(
+        today + timedelta(days=1), closing_time
+    ).replace(tzinfo=ZoneInfo("America/New_York"))
+
     # Determine if the store is open
     is_open = today_opening <= current_datetime < tomorrow_closing
-    
+
     # Calculate time until next state change
     if is_open:
         next_change = tomorrow_closing
@@ -140,11 +148,23 @@ def store_status():
         if current_datetime < today_opening:
             next_change = today_opening
         else:
-            next_change = datetime.combine(today + timedelta(days=1), opening_time)
-    
+            next_change = datetime.combine(
+                today + timedelta(days=1), opening_time
+            ).replace(tzinfo=ZoneInfo("America/New_York"))
+
     time_until = next_change - current_datetime
-    
+
     return (time_until, is_open)
+
+
+def format_timedelta(td: timedelta) -> str:
+    """Convert a timedelta object to 'hr:min:s' format string."""
+    total_seconds = int(td.total_seconds())
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    result = f"{hours}:{minutes:02d}:{seconds:02d}"
+    assert isinstance(result, str)
+    return result
 
 
 if __name__ == "__main__":

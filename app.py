@@ -1,5 +1,6 @@
 import sys
 import asyncio
+import datetime as dt
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -10,28 +11,22 @@ from PySide6.QtWidgets import (
     QLabel,
     QTabWidget,
     QMenu,
-    QMenuBar
+    QMenuBar,
 )
-from PySide6.QtCore import (
-    Qt,
-    QObject,
-    Signal,
-    Slot
-)
-from PySide6.QtGui import (
-    QKeySequence
-)
+from PySide6.QtCore import Qt, QObject, Signal, Slot
+from PySide6.QtGui import QKeySequence
 import PySide6.QtAsyncio as QtAsyncio
 
 from user import User
+from utils import exchange_status, format_timedelta
+
 
 class TradingApp(QMainWindow):
-
     setBal = Signal(str)
     exchStatus = Signal(str)
 
-    def __init__(self,user : User):
-        assert isinstance(user,User)
+    def __init__(self, user: User):
+        assert isinstance(user, User)
         super().__init__()
         self.user = user
         self.setWindowTitle("Trading Application")
@@ -92,63 +87,68 @@ class TradingApp(QMainWindow):
         # Create menu bar
         menubar = QMenuBar()
         file_menu = QMenu("File")
-        
+
         # Add close action with Cmd+W shortcut
         close_action = file_menu.addAction("Close")
         close_action.setShortcut(QKeySequence("Ctrl+W"))
         close_action.triggered.connect(self.close)
-        
+
         menubar.addMenu(file_menu)
-        
+
         # Set native menu bar on macOS
-        if sys.platform == 'darwin':
+        if sys.platform == "darwin":
             menubar.setNativeMenuBar(True)
-        
+
         self.setMenuBar(menubar)
         self.setBal.connect(self.setBalance)
         self.exchStatus.connect(self.setExchStatus)
 
     @Slot(str)
-    def setBalance(self,bal):
+    def setBalance(self, bal):
         assert isinstance(self.balance, QLabel)
         self.balance.setText(bal)
 
     @Slot(str)
-    def setExchStatus(self,status:str):
-        assert isinstance(self.status_value,QLabel)
+    def setExchStatus(self, status: str):
+        assert isinstance(self.status_value, QLabel)
         self.status_value.setText(status)
 
 
 class Balance(QObject):
-    def __init__(self,user: User, window: QMainWindow):
+    def __init__(self, user: User, window: QMainWindow):
         assert isinstance(user, User)
-        assert isinstance(window,QMainWindow)
+        assert isinstance(window, QMainWindow)
         self.user = user
         self.window = window
 
     async def stream(self):
         while True:
-            float_val = user.getBalance()['balance'] / 100
+            float_val = user.getBalance()["balance"] / 100
             str_val = f"$ {float_val:.02f}"
             self.window.setBal.emit(str_val)
             await asyncio.sleep(0.2)
 
+
 class Exchange(QObject):
-    def __init__(self,window: QMainWindow):
+    def __init__(self, window: QMainWindow):
         assert isinstance(window, QMainWindow)
         self.window = window
-    
+
     async def stream(self):
         while True:
-            self.window.exchStatus.emit("open")
-            await asyncio.sleep(0.2)
+            time_left, is_open = exchange_status()
+            assert isinstance(time_left, dt.timedelta)
+            assert isinstance(is_open, bool)
+            fmt_str = format_timedelta(time_left)
+            self.window.exchStatus.emit(fmt_str)
+            await asyncio.sleep(1)
 
 
 if __name__ == "__main__":
     user = User()
     app = QApplication(sys.argv)
     window = TradingApp(user)
-    balance = Balance(user,window)
+    balance = Balance(user, window)
     exchange = Exchange(window)
 
     tasks = [balance.stream(), exchange.stream()]
@@ -157,4 +157,4 @@ if __name__ == "__main__":
         await asyncio.gather(*tasks)
 
     window.show()
-    QtAsyncio.run(run_streams(tasks),handle_sigint=True)
+    QtAsyncio.run(run_streams(tasks), handle_sigint=True)
