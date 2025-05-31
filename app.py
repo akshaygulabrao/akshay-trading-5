@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QMenu,
     QMenuBar,
+    QTableWidget,
+    QHeaderView,
 )
 from PySide6.QtCore import Qt, QObject, Signal, Slot
 from PySide6.QtGui import QKeySequence
@@ -30,7 +32,7 @@ class TradingApp(QMainWindow):
         super().__init__()
         self.user = user
         self.setWindowTitle("Trading Application")
-        self.resize(800, 600)
+        self.resize(1000, 600)
 
         # Main widget and layout
         main_widget = QWidget()
@@ -40,7 +42,7 @@ class TradingApp(QMainWindow):
 
         # Top pane (30% height)
         top_pane = QWidget()
-        top_pane.setFixedHeight(int(self.height() * 0.3))
+        top_pane.setFixedHeight(80)
         top_layout = QHBoxLayout(top_pane)
 
         # Account balance widget (left)
@@ -73,10 +75,43 @@ class TradingApp(QMainWindow):
         tab_titles = ["NY", "CHI", "AUS", "MIA", "DEN", "PHIL", "LAX"]
         for title in tab_titles:
             tab = QWidget()
-            tab_layout = QVBoxLayout(tab)
-            label = QLabel(f"Content for {title} market")
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            tab_layout.addWidget(label)
+            tab_layout = QHBoxLayout(tab)  # Main left-right split
+
+            # Create left container (will hold top and bottom tables)
+            left_container = QWidget()
+            left_layout = QVBoxLayout(left_container)  # Top-bottom split
+
+            # Create top table
+            top_table = QTableWidget(6, 3)
+            top_table.setHorizontalHeaderLabels(
+                ["Ticker", "Bid (Price x Size)", "Ask (Price x Size)"]
+            )
+            top_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            top_table.verticalHeader().setVisible(False)
+            top_table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+            # Create bottom table
+            bottom_table = QTableWidget(6, 3)
+            bottom_table.setHorizontalHeaderLabels(
+                ["Ticker", "Bid (Price x Size)", "Ask (Price x Size)"]
+            )
+            bottom_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            bottom_table.verticalHeader().setVisible(False)
+            bottom_table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+            # Add tables to left container with stretch factors
+            left_layout.addWidget(top_table, 1)  # Takes 1 part of space
+            left_layout.addWidget(bottom_table, 1)  # Takes 1 part of space
+
+            # Create right container
+            right_container = QWidget()
+            right_layout = QVBoxLayout(right_container)
+            right_layout.addWidget(QLabel(f"Additional content for {title}"))
+
+            # Add left and right containers to main tab layout
+            tab_layout.addWidget(left_container, 1)  # Takes 1 part of space
+            tab_layout.addWidget(right_container, 1)  # Takes 1 part of space
+
             tab_widget.addTab(tab, title)
 
         # Add widgets to main layout
