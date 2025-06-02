@@ -18,6 +18,7 @@ import utils
 class OrderbookWebSocketClient(KalshiWebSocketClient):
     def __init__(self, key_id, private_key, environment, pub):
         super().__init__(key_id, private_key, environment)
+        assert isinstance(pub, zmq.SyncSocket)
         self.order_books = {}
         self.pub = pub
         self.delta_count = 0
