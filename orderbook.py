@@ -5,6 +5,7 @@ is pointless at my frequency.
 """
 import asyncio
 import json
+import signal
 from collections import defaultdict
 
 import zmq
@@ -18,10 +19,11 @@ import utils
 class OrderbookWebSocketClient(KalshiWebSocketClient):
     def __init__(self, key_id, private_key, environment, pub):
         super().__init__(key_id, private_key, environment)
-        assert isinstance(pub, zmq.SyncSocket)
         self.order_books = {}
         self.pub = pub
         self.delta_count = 0
+        self.shutdown_requested = False
+        self.tasks = []
 
     async def connect(self, tickers):
         """Establishes a WebSocket connection and runs concurrent tasks."""
@@ -36,22 +38,28 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
             # Create tasks for handler and periodic publishing
             handler_task = asyncio.create_task(self.handler())
             periodic_task = asyncio.create_task(self.periodic_publish())
+            self.tasks.extend([handler_task, periodic_task])
 
             # Run both tasks concurrently
-            await asyncio.gather(handler_task, periodic_task)
+            await asyncio.gather(*self.tasks, return_exceptions=True)
 
     async def periodic_publish(self):
         """Periodically publishes orderbook data every second."""
-        while True:
-            await asyncio.sleep(10)
-            for market_id in list(
-                self.order_books.keys()
-            ):  # Use a copy to avoid dict size change during iteration
-                self.publish_orderbook(market_id)
-            logger.info(
-                f"periodic published finished, processed {self.delta_count} updates"
-            )
-            self.delta_count = 0
+        while not self.shutdown_requested:
+            try:
+                await asyncio.sleep(10)
+                if self.shutdown_requested:
+                    break
+                    
+                for market_id in list(self.order_books.keys()):
+                    self.publish_orderbook(market_id)
+                logger.info(
+                    f"periodic published finished, processed {self.delta_count} updates"
+                )
+                self.delta_count = 0
+            except asyncio.CancelledError:
+                logger.info("Periodic publish task cancelled")
+                break
 
     async def on_message(self, message_str):
         try:
@@ -100,6 +108,9 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
 
     def publish_orderbook(self, market_id):
         """Publishes both Yes and converted No orderbooks"""
+        if self.shutdown_requested:
+            return
+            
         yes_book = self.order_books[market_id]["yes"]
         no_book = self.order_books[market_id]["no"]
 
@@ -111,35 +122,81 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
             }
         )
 
+    async def graceful_shutdown(self):
+        """Clean up resources"""
+        self.shutdown_requested = True
+        logger.info("Starting graceful shutdown...")
+        
+        # Cancel all running tasks
+        for task in self.tasks:
+            if not task.done():
+                task.cancel()
+        
+        # Wait for tasks to complete cancellation
+        await asyncio.gather(*self.tasks, return_exceptions=True)
+        
+        # Close WebSocket connection if it exists
+        if hasattr(self, 'ws'):
+            await self.ws.close()
+            
+        # Close ZMQ socket
+        if hasattr(self, 'pub'):
+            self.pub.close()
+        
+        logger.info("Graceful shutdown complete")
+
     async def on_close(self):
         """Clean up resources"""
-        self.periodic_task.cancel()
-        try:
-            await self.periodic_task
-        except asyncio.CancelledError:
-            pass
+        await self.graceful_shutdown()
         await super().on_close()
 
 
+def handle_signal(signal_name):
+    """Signal handler factory"""
+    def handler(signum, frame):
+        logger.warning(f"Received {signal_name}, initiating graceful shutdown...")
+        # Set shutdown flag on the client instance
+        if 'client' in globals():
+            client.shutdown_requested = True
+        # Get running event loop and create shutdown task
+        loop = asyncio.get_running_loop()
+        loop.create_task(client.graceful_shutdown())
+    return handler
+
+
 async def main():
-    logger.remove()
     logger.add(
         "orderbook_logs/ob.log", rotation="24 hours", retention="3 days", enqueue=True
     )
+    
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, handle_signal('SIGINT'))
+    signal.signal(signal.SIGTERM, handle_signal('SIGTERM'))
+
     KEYID, private_key, env = utils.setup_prod()
 
     context = zmq.Context()
     pub = context.socket(zmq.PUB)
     pub.bind("ipc:///tmp/orderbook.ipc")
     mkts = utils.get_markets()
+    
+    global client
     client = OrderbookWebSocketClient(
         key_id=KEYID, private_key=private_key, environment=env, pub=pub
     )
-    await client.connect(mkts)
+    
+    try:
+        await client.connect(mkts)
+    except asyncio.CancelledError:
+        logger.info("Main task cancelled during shutdown")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+    finally:
+        await client.graceful_shutdown()
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.error("Rcvd Keyboard Interrupt, exiting")
+        logger.info("Received KeyboardInterrupt, shutdown complete")
