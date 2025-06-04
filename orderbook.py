@@ -9,6 +9,7 @@ import signal
 from collections import defaultdict
 
 import zmq
+from zmq.asyncio import Context
 import websockets
 from loguru import logger
 
@@ -177,7 +178,7 @@ async def main():
 
     KEYID, private_key, env = utils.setup_prod()
 
-    context = zmq.Context()
+    context = Context.instance()
     pub = context.socket(zmq.PUB)
     pub.bind("ipc:///tmp/orderbook.ipc")
     mkts = utils.get_markets()

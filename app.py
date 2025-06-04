@@ -3,6 +3,7 @@ import asyncio
 import datetime as dt
 from collections import defaultdict
 import subprocess
+import json
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -20,7 +21,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QObject, Signal, Slot
 from PySide6.QtGui import QKeySequence
 import PySide6.QtAsyncio as QtAsyncio
-from loguru import logger
+import zmq
+from zmq.asyncio import Context,Poller
 
 from user import User
 import utils
@@ -184,11 +186,44 @@ class Exchange(QObject):
             await asyncio.sleep(1)
 
 
+
 class OrderBookListener:
     def __init__(self, window: TradingApp):
         assert isinstance(window, TradingApp)
         self.window = window
+        ctx = zmq.Context()
 
+        self.subscriber = ctx.socket(zmq.PULL)
+        self.subscriber.connect("ipc:///tmp/orderbook.ipc")
+        self.subscriber.setsockopt_string(zmq.SUBSCRIBE, "")
+        self.poller = Poller()
+        self.poller.register(self.subscriber, zmq.POLLIN)
+
+    async def stream(self):
+        while True:
+            try:
+                events = await self.poller.poll()
+                print(dict(events))
+                if self.subscriber in dict(events):
+                    print('a')
+                print()
+                # print("Received orderbook update:")
+                # print(f"Market: {message['market_ticker']}")
+                # print("Yes bids:")
+                # for price, size in message['yes'].items():
+                #     print(f"  {price}: {size}")
+                # print("No bids:")
+                # for price, size in message['no'].items():
+                #     print(f"  {price}: {size}")
+                print("-" * 40)
+            except zmq.ZMQError as e:
+                print(f"ZMQ error occurred: {e}")
+                break
+            except asyncio.CancelledError:
+                print("Orderbook subscription cancelled")
+                break
+            except Exception as e:
+                print(f"Error processing orderbook message: {e}")
 
 def launch_orderbook():
     common_dir = "/Users/trading/workspace/akshay-trading-5"
@@ -206,8 +241,9 @@ if __name__ == "__main__":
     window = TradingApp(user)
     balance = Balance(user, window)
     exchange = Exchange(window)
+    ob = OrderBookListener(window)
 
-    tasks = [balance.stream(), exchange.stream()]
+    tasks = [balance.stream(), exchange.stream(), ob.stream()]
 
     async def run_streams(tasks):
         await asyncio.gather(*tasks)
