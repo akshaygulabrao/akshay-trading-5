@@ -2,9 +2,7 @@ import sys
 import asyncio
 import datetime as dt
 from collections import defaultdict
-import json
 import subprocess
-import time
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -22,12 +20,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QObject, Signal, Slot
 from PySide6.QtGui import QKeySequence
 import PySide6.QtAsyncio as QtAsyncio
-import zmq
-import websockets
 from loguru import logger
 
 from user import User
-from kalshi_ref import KalshiWebSocketClient
 import utils
 from utils import exchange_status, format_timedelta
 
@@ -35,6 +30,7 @@ from utils import exchange_status, format_timedelta
 class TradingApp(QMainWindow):
     setBal = Signal(str)
     exchStatus = Signal(str)
+    orderbook_update = Signal(str, int, int, int, int)
 
     def __init__(self, user: User):
         assert isinstance(user, User)
@@ -187,18 +183,23 @@ class Exchange(QObject):
             self.window.exchStatus.emit(fmt_str)
             await asyncio.sleep(1)
 
+
+class OrderBookListener:
+    def __init__(self, window: TradingApp):
+        assert isinstance(window, TradingApp)
+        self.window = window
+
+
 def launch_orderbook():
     common_dir = "/Users/trading/workspace/akshay-trading-5"
     py = f"{common_dir}/.venv/bin/python"
     executable = f"{common_dir}/orderbook.py"
-    proc = subprocess.Popen([py,executable])
-    time.sleep(2)
-    proc.terminate()
+    proc = subprocess.Popen([py, executable])
+    return proc
+
 
 if __name__ == "__main__":
-    print("Launching Orderbook")
-    launch_orderbook()
-    print("Exited Orderbook")
+    proc = launch_orderbook()
     mkts = utils.get_markets()
     user = User()
     app = QApplication(sys.argv)
@@ -213,3 +214,4 @@ if __name__ == "__main__":
 
     window.show()
     QtAsyncio.run(run_streams(tasks), handle_sigint=True)
+    proc.terminate()

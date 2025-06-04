@@ -50,7 +50,7 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
                 await asyncio.sleep(10)
                 if self.shutdown_requested:
                     break
-                    
+
                 for market_id in list(self.order_books.keys()):
                     self.publish_orderbook(market_id)
                 logger.info(
@@ -110,7 +110,7 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         """Publishes both Yes and converted No orderbooks"""
         if self.shutdown_requested:
             return
-            
+
         yes_book = self.order_books[market_id]["yes"]
         no_book = self.order_books[market_id]["no"]
 
@@ -126,23 +126,23 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         """Clean up resources"""
         self.shutdown_requested = True
         logger.info("Starting graceful shutdown...")
-        
+
         # Cancel all running tasks
         for task in self.tasks:
             if not task.done():
                 task.cancel()
-        
+
         # Wait for tasks to complete cancellation
         await asyncio.gather(*self.tasks, return_exceptions=True)
-        
+
         # Close WebSocket connection if it exists
-        if hasattr(self, 'ws'):
+        if hasattr(self, "ws"):
             await self.ws.close()
-            
+
         # Close ZMQ socket
-        if hasattr(self, 'pub'):
+        if hasattr(self, "pub"):
             self.pub.close()
-        
+
         logger.info("Graceful shutdown complete")
 
     async def on_close(self):
@@ -153,14 +153,16 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
 
 def handle_signal(signal_name):
     """Signal handler factory"""
+
     def handler(signum, frame):
         logger.warning(f"Received {signal_name}, initiating graceful shutdown...")
         # Set shutdown flag on the client instance
-        if 'client' in globals():
+        if "client" in globals():
             client.shutdown_requested = True
         # Get running event loop and create shutdown task
         loop = asyncio.get_running_loop()
         loop.create_task(client.graceful_shutdown())
+
     return handler
 
 
@@ -168,10 +170,10 @@ async def main():
     logger.add(
         "orderbook_logs/ob.log", rotation="24 hours", retention="3 days", enqueue=True
     )
-    
+
     # Set up signal handlers
-    signal.signal(signal.SIGINT, handle_signal('SIGINT'))
-    signal.signal(signal.SIGTERM, handle_signal('SIGTERM'))
+    signal.signal(signal.SIGINT, handle_signal("SIGINT"))
+    signal.signal(signal.SIGTERM, handle_signal("SIGTERM"))
 
     KEYID, private_key, env = utils.setup_prod()
 
@@ -179,12 +181,12 @@ async def main():
     pub = context.socket(zmq.PUB)
     pub.bind("ipc:///tmp/orderbook.ipc")
     mkts = utils.get_markets()
-    
+
     global client
     client = OrderbookWebSocketClient(
         key_id=KEYID, private_key=private_key, environment=env, pub=pub
     )
-    
+
     try:
         await client.connect(mkts)
     except asyncio.CancelledError:

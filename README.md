@@ -12,7 +12,7 @@ The best data sources that are used to evaluate the high each day is the climato
 
 There is often rounding error with each measurement because the sensor rounds to the nearest celsius degree, causing variance of 2 degrees between measurements. It's unclear how much noise happens in these short term durations as well.
 
-## Visualization
-We must make the websocket connection in a different python process because the create_connection fn() is written in C and was only built to be inherited from the asyncio.BaseEventLoop, but the python QtAsyncio implementation builds the event loop as a child of both QObject and asyncio.BaseEventLoop.
+## In Progress
+Add a class that listens to the orderbook ipc socket created by the external process.
 
 ![alt text](images/trading-algorithm.png)
