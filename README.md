@@ -13,6 +13,6 @@ The best data sources that are used to evaluate the high each day is the climato
 There is often rounding error with each measurement because the sensor rounds to the nearest celsius degree, causing variance of 2 degrees between measurements. It's unclear how much noise happens in these short term durations as well.
 
 ## In Progress
-Add a class that listens to the orderbook ipc socket created by the external process. Need to use zmq.asyncio
+Using QtWebSockets and QNetworkRequests to manage the orderbook inside the app instead of using IPC. Having trouble setting up the authentication to the websocket.
 
 ![alt text](images/trading-algorithm.png)
