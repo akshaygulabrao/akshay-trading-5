@@ -4,7 +4,7 @@ from PySide6.QtCore import QUrl, Qt, Signal, QObject
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWebSockets import QWebSocket
 from PySide6.QtNetwork import QNetworkRequest,QAbstractSocket
-from utils import setup_client
+from utils import setup_client,get_markets
 
 class WebSocketClient(QObject):
     message_received = Signal(str)
@@ -15,6 +15,7 @@ class WebSocketClient(QObject):
     def __init__(self):
         super().__init__()
         self.websocket = QWebSocket()
+        self.message_id = 1
         
         # Connect signals
         self.websocket.connected.connect(self.on_connected)
@@ -37,7 +38,9 @@ class WebSocketClient(QObject):
         self.connected.emit()
         
         # Subscribe to desired channels after connection
-        self.subscribe_to_portfolio()
+        tickers = get_markets()
+        print(tickers)
+        self.subscribe_to_portfolio(tickers)
 
     def on_disconnected(self):
         print("❌ WebSocket disconnected")
@@ -53,13 +56,15 @@ class WebSocketClient(QObject):
         print(error_msg)
         self.error_occurred.emit(error_msg)
 
-    def subscribe_to_portfolio(self):
+    def subscribe_to_portfolio(self,tickers):
         """Example: Subscribe to portfolio updates"""
         subscribe_message = {
-            "type": "subscribe",
-            "portfolio_subscription": {}
+            "id": self.message_id,
+            "cmd": "subscribe",
+            "params": {"channels": ["orderbook_delta"], "market_tickers": tickers},
         }
         self.send_message(json.dumps(subscribe_message))
+        self.message_id +=1
 
     def send_message(self, message):
         if self.websocket.state() == QAbstractSocket.SocketState.ConnectedState:
@@ -92,7 +97,7 @@ def main():
     # Set up a timer to exit after some time (for demonstration)
     # In a real app, you'd keep it running and handle user input
     from PySide6.QtCore import QTimer
-    QTimer.singleShot(1000, lambda: (ws_client.close_connection(), app.quit()))
+    QTimer.singleShot(10000, lambda: (ws_client.close_connection(), app.quit()))
     
     sys.exit(app.exec())
 

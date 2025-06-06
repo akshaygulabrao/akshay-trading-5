@@ -5,24 +5,24 @@ from collections import defaultdict
 import subprocess
 import json
 
+from PySide6.QtCore import QObject, Qt, QUrl, Signal, Slot
+from PySide6.QtGui import QKeySequence
+from PySide6.QtNetwork import QAbstractSocket, QNetworkRequest
+from PySide6.QtWebSockets import QWebSocket
 from PySide6.QtWidgets import (
     QApplication,
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
-    QTabWidget,
+    QMainWindow,
     QMenu,
     QMenuBar,
+    QTabWidget,
     QTableWidget,
-    QHeaderView,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtCore import Qt, QObject, Signal, Slot
-from PySide6.QtGui import QKeySequence
 import PySide6.QtAsyncio as QtAsyncio
-import zmq
-from zmq.asyncio import Context,Poller
 
 from user import User
 import utils
@@ -185,69 +185,100 @@ class Exchange(QObject):
             self.window.exchStatus.emit(fmt_str)
             await asyncio.sleep(1)
 
+class WebSocketClient(QObject):
+    message_received = Signal(str)
+    connected = Signal()
+    disconnected = Signal()
+    error_occurred = Signal(str)
 
+    def __init__(self):
+        super().__init__()
+        self.websocket = QWebSocket()
+        self.message_id = 1
+        
+        # Connect signals
+        self.websocket.connected.connect(self.on_connected)
+        self.websocket.disconnected.connect(self.on_disconnected)
+        self.websocket.textMessageReceived.connect(self.on_text_message_received)
+        self.websocket.errorOccurred.connect(self.on_error)
 
-class OrderBookListener:
-    def __init__(self, window: TradingApp):
-        assert isinstance(window, TradingApp)
-        self.window = window
-        ctx = zmq.Context()
+    def connect_to_server(self, url, headers):
+        """Connect to the WebSocket server with custom headers"""
+        request = QNetworkRequest(QUrl(url))
+        
+        # Set headers
+        for key, value in headers.items():
+            request.setRawHeader(key.encode('utf-8'), value.encode('utf-8'))
+            
+        self.websocket.open(request)
 
-        self.subscriber = ctx.socket(zmq.PULL)
-        self.subscriber.connect("ipc:///tmp/orderbook.ipc")
-        self.subscriber.setsockopt_string(zmq.SUBSCRIBE, "")
-        self.poller = Poller()
-        self.poller.register(self.subscriber, zmq.POLLIN)
+    def on_connected(self):
+        print("✅ WebSocket connected")
+        self.connected.emit()
+        
+        # Subscribe to desired channels after connection
+        tickers = utils.get_markets()
+        print(tickers)
+        self.subscribe_to_portfolio(tickers)
 
-    async def stream(self):
-        while True:
-            try:
-                events = await self.poller.poll()
-                print(dict(events))
-                if self.subscriber in dict(events):
-                    print('a')
-                print()
-                # print("Received orderbook update:")
-                # print(f"Market: {message['market_ticker']}")
-                # print("Yes bids:")
-                # for price, size in message['yes'].items():
-                #     print(f"  {price}: {size}")
-                # print("No bids:")
-                # for price, size in message['no'].items():
-                #     print(f"  {price}: {size}")
-                print("-" * 40)
-            except zmq.ZMQError as e:
-                print(f"ZMQ error occurred: {e}")
-                break
-            except asyncio.CancelledError:
-                print("Orderbook subscription cancelled")
-                break
-            except Exception as e:
-                print(f"Error processing orderbook message: {e}")
+    def on_disconnected(self):
+        print("❌ WebSocket disconnected")
+        self.disconnected.emit()
 
-def launch_orderbook():
-    common_dir = "/Users/trading/workspace/akshay-trading-5"
-    py = f"{common_dir}/.venv/bin/python"
-    executable = f"{common_dir}/orderbook.py"
-    proc = subprocess.Popen([py, executable])
-    return proc
+    def on_text_message_received(self, message):
+        print("📨 Message received:")
+        print(message)
+        self.message_received.emit(message)
 
+    def on_error(self, error):
+        error_msg = f"WebSocket error: {error}"
+        print(error_msg)
+        self.error_occurred.emit(error_msg)
+
+    def subscribe_to_portfolio(self,tickers):
+        """Example: Subscribe to portfolio updates"""
+        subscribe_message = {
+            "id": self.message_id,
+            "cmd": "subscribe",
+            "params": {"channels": ["orderbook_delta"], "market_tickers": tickers},
+        }
+        self.send_message(json.dumps(subscribe_message))
+        self.message_id +=1
+
+    def send_message(self, message):
+        if self.websocket.state() == QAbstractSocket.SocketState.ConnectedState:
+            self.websocket.sendTextMessage(message)
+        else:
+            print("Cannot send message - WebSocket is not connected")
+
+    def close_connection(self):
+        self.websocket.close()
 
 if __name__ == "__main__":
-    proc = launch_orderbook()
     mkts = utils.get_markets()
     user = User()
     app = QApplication(sys.argv)
     window = TradingApp(user)
     balance = Balance(user, window)
     exchange = Exchange(window)
-    ob = OrderBookListener(window)
+    path = "/trade-api/ws/v2"
+    base = "wss://api.elections.kalshi.com"
 
-    tasks = [balance.stream(), exchange.stream(), ob.stream()]
+    client = utils.setup_client()
+    headers = client.request_headers("GET", "/trade-api/ws/v2")
+    websocket_url = base + path
+    
+    # Create and connect WebSocket client
+    ws_client = WebSocketClient()
+    ws_client.connect_to_server(websocket_url, headers)
+    
+    # Connect signals to handle events
+    ws_client.message_received.connect(lambda msg: print(f"Processed message: {msg}"))
+    ws_client.error_occurred.connect(lambda err: print(f"Error: {err}"))
+    tasks = [balance.stream(), exchange.stream()]
 
     async def run_streams(tasks):
         await asyncio.gather(*tasks)
 
     window.show()
     QtAsyncio.run(run_streams(tasks), handle_sigint=True)
-    proc.terminate()
