@@ -3,6 +3,7 @@ import asyncio
 import datetime as dt
 from collections import defaultdict
 import subprocess
+from dataclasses import dataclass
 import json
 
 from PySide6.QtCore import QObject, Qt, QUrl, Signal, Slot
@@ -27,6 +28,24 @@ import PySide6.QtAsyncio as QtAsyncio
 from user import User
 import utils
 from utils import exchange_status, format_timedelta
+
+
+@dataclass
+class Market:
+    """Represents a market with yes and no tuples."""
+
+    yes: list[list[int, int]]
+    no: list[list[int, int]]
+    yes_str: str
+    no_str: str
+
+    def find_top_yes(self):
+        m = max(self.yes)
+        self.yes_str = f"{m[0]} x {m[1]}"
+
+    def find_top_no(self):
+        m = max(self.no)
+        self.no_str = f"{m[0]} x {m[1]}"
 
 
 class TradingApp(QMainWindow):
@@ -145,6 +164,8 @@ class TradingApp(QMainWindow):
         self.setBal.connect(self.setBalance)
         self.exchStatus.connect(self.setExchStatus)
 
+        self.orderbook = {}
+
     @Slot(str)
     def setBalance(self, bal):
         assert isinstance(self.balance, QLabel)
@@ -154,6 +175,13 @@ class TradingApp(QMainWindow):
     def setExchStatus(self, status: str):
         assert isinstance(self.status_value, QLabel)
         self.status_value.setText(status)
+
+    @Slot(str, int, int, int, int)
+    def orderbook_update(
+        self, ticker: str, bid_p: int, bid_s: int, ask_p: int, ask_s: int
+    ):
+        assert isinstance(self.orderbook[ticker], Market)
+        self.orderbook[ticker].bid_price = bid_p
 
 
 class Balance(QObject):
@@ -185,6 +213,7 @@ class Exchange(QObject):
             self.window.exchStatus.emit(fmt_str)
             await asyncio.sleep(1)
 
+
 class WebSocketClient(QObject):
     message_received = Signal(str)
     connected = Signal()
@@ -195,27 +224,28 @@ class WebSocketClient(QObject):
         super().__init__()
         self.websocket = QWebSocket()
         self.message_id = 1
-        
+
         # Connect signals
         self.websocket.connected.connect(self.on_connected)
         self.websocket.disconnected.connect(self.on_disconnected)
         self.websocket.textMessageReceived.connect(self.on_text_message_received)
         self.websocket.errorOccurred.connect(self.on_error)
+        self.orderbook = {}
 
     def connect_to_server(self, url, headers):
         """Connect to the WebSocket server with custom headers"""
         request = QNetworkRequest(QUrl(url))
-        
+
         # Set headers
         for key, value in headers.items():
-            request.setRawHeader(key.encode('utf-8'), value.encode('utf-8'))
-            
+            request.setRawHeader(key.encode("utf-8"), value.encode("utf-8"))
+
         self.websocket.open(request)
 
     def on_connected(self):
         print("✅ WebSocket connected")
         self.connected.emit()
-        
+
         # Subscribe to desired channels after connection
         tickers = utils.get_markets()
         print(tickers)
@@ -226,16 +256,46 @@ class WebSocketClient(QObject):
         self.disconnected.emit()
 
     def on_text_message_received(self, message):
-        print("📨 Message received:")
-        print(message)
-        self.message_received.emit(message)
+        msg = json.loads(message)
+        if msg["type"] == "orderbook_delta":
+            mkt_ticker = msg["msg"]["market_ticker"]
+            mkt_found = False
+            for k, v in self.orderbook.items():
+                if k == mkt_ticker:
+                    mkt_found = True
+            assert mkt_found
+            side = msg["msg"]["side"]
+            price = msg["msg"]["price"]
+            delta = msg["msg"]["delta"]
+            if side == "yes":
+                mkt = self.orderbook[mkt_ticker]
+                yes_ob = self.orderbook[mkt_ticker].yes
+                for p, d in yes_ob:
+                    if price == p:
+                        d += delta
+                mkt.find_top_yes()
+            if side == "no":
+                mkt = self.orderbook[mkt_ticker]
+                no_ob = self.orderbook[mkt_ticker].no
+                for p, d in no_ob:
+                    if price == p:
+                        d += delta
+                mkt.find_top_no()
+
+        elif msg["type"] == "orderbook_snapshot":
+            mkt_ticker = msg["msg"]["market_ticker"]
+            self.orderbook[mkt_ticker] = Market()
+            if "yes" in msg["msg"]:
+                self.orderbook[mkt_ticker].yes = msg["msg"]["yes"]
+            else:
+                self.orderbook[mkt_ticker].no = msg["msg"]["no"]
 
     def on_error(self, error):
         error_msg = f"WebSocket error: {error}"
         print(error_msg)
         self.error_occurred.emit(error_msg)
 
-    def subscribe_to_portfolio(self,tickers):
+    def subscribe_to_portfolio(self, tickers):
         """Example: Subscribe to portfolio updates"""
         subscribe_message = {
             "id": self.message_id,
@@ -243,7 +303,7 @@ class WebSocketClient(QObject):
             "params": {"channels": ["orderbook_delta"], "market_tickers": tickers},
         }
         self.send_message(json.dumps(subscribe_message))
-        self.message_id +=1
+        self.message_id += 1
 
     def send_message(self, message):
         if self.websocket.state() == QAbstractSocket.SocketState.ConnectedState:
@@ -253,6 +313,7 @@ class WebSocketClient(QObject):
 
     def close_connection(self):
         self.websocket.close()
+
 
 if __name__ == "__main__":
     mkts = utils.get_markets()
@@ -267,13 +328,12 @@ if __name__ == "__main__":
     client = utils.setup_client()
     headers = client.request_headers("GET", "/trade-api/ws/v2")
     websocket_url = base + path
-    
+
     # Create and connect WebSocket client
     ws_client = WebSocketClient()
     ws_client.connect_to_server(websocket_url, headers)
-    
+
     # Connect signals to handle events
-    ws_client.message_received.connect(lambda msg: print(f"Processed message: {msg}"))
     ws_client.error_occurred.connect(lambda err: print(f"Error: {err}"))
     tasks = [balance.stream(), exchange.stream()]
 
