@@ -1,9 +1,7 @@
 import sys
 import asyncio
 import datetime as dt
-from collections import defaultdict
-import subprocess
-from dataclasses import dataclass
+from loguru import logger
 import json
 
 from PySide6.QtCore import QObject, Qt, QUrl, Signal, Slot
@@ -20,6 +18,7 @@ from PySide6.QtWidgets import (
     QMenuBar,
     QTabWidget,
     QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -28,35 +27,16 @@ import PySide6.QtAsyncio as QtAsyncio
 from user import User
 import utils
 from utils import exchange_status, format_timedelta
-
-
-@dataclass
-class Market:
-    """Represents a market with yes and no tuples."""
-
-    yes: list[list[int, int]]
-    no: list[list[int, int]]
-    yes_str: str
-    no_str: str
-
-    def find_top_yes(self):
-        m = max(self.yes)
-        self.yes_str = f"{m[0]} x {m[1]}"
-
-    def find_top_no(self):
-        m = max(self.no)
-        self.no_str = f"{m[0]} x {m[1]}"
+import jsonargparse
 
 
 class TradingApp(QMainWindow):
     setBal = Signal(str)
     exchStatus = Signal(str)
-    orderbook_update = Signal(str, int, int, int, int)
+    orderbookUpdate = Signal(str, str, str)
 
-    def __init__(self, user: User):
-        assert isinstance(user, User)
+    def __init__(self, sites: list[str]):
         super().__init__()
-        self.user = user
         self.setWindowTitle("Trading Application")
         self.resize(1000, 600)
 
@@ -77,7 +57,6 @@ class TradingApp(QMainWindow):
         balance_label = QLabel("Account Balance")
         balance_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.balance = QLabel("")
-
         self.balance.setAlignment(Qt.AlignmentFlag.AlignCenter)
         balance_layout.addWidget(balance_label)
         balance_layout.addWidget(self.balance)
@@ -98,8 +77,9 @@ class TradingApp(QMainWindow):
 
         # Tab widget (70% height)
         tab_widget = QTabWidget()
-        tab_titles = ["NY", "CHI", "AUS", "MIA", "DEN", "PHIL", "LAX"]
-        for title in tab_titles:
+
+        for title in sites:
+            event_markets = utils.get_markets_for_sites([title])
             tab = QWidget()
             tab_layout = QHBoxLayout(tab)  # Main left-right split
 
@@ -107,36 +87,30 @@ class TradingApp(QMainWindow):
             left_container = QWidget()
             left_layout = QVBoxLayout(left_container)  # Top-bottom split
 
-            # Create top table
-            top_table = QTableWidget(6, 3)
-            top_table.setHorizontalHeaderLabels(
-                ["Ticker", "Bid (Price x Size)", "Ask (Price x Size)"]
-            )
-            top_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-            top_table.verticalHeader().setVisible(False)
-            top_table.setEditTriggers(QTableWidget.NoEditTriggers)
+            self.market2table = {}
+            self.market2row = {}
+            for event, markets in event_markets.items():
+                table = QTableWidget(len(markets), 3)
+                table.setHorizontalHeaderLabels(
+                    ["Ticker", "Yes (Price x Size)", "No (Price x Size)"]
+                )
+                table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+                table.verticalHeader().setVisible(False)
+                table.setEditTriggers(QTableWidget.NoEditTriggers)
+                for row, market in enumerate(markets):
+                    ticker_item = QTableWidgetItem(market)
+                    self.market2table[market] = table
+                    self.market2row[market] = row
+                left_layout.addWidget(table, 1)  # Takes 1 part of space
 
-            # Create bottom table
-            bottom_table = QTableWidget(6, 3)
-            bottom_table.setHorizontalHeaderLabels(
-                ["Ticker", "Bid (Price x Size)", "Ask (Price x Size)"]
-            )
-            bottom_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-            bottom_table.verticalHeader().setVisible(False)
-            bottom_table.setEditTriggers(QTableWidget.NoEditTriggers)
+            for event, markets in event_markets.items():
+                for row, market in enumerate(markets):
+                    ticker_item = QTableWidgetItem(market)
+                    self.market2table[market].setItem(
+                        self.market2row[market], 0, ticker_item
+                    )
 
-            # Add tables to left container with stretch factors
-            left_layout.addWidget(top_table, 1)  # Takes 1 part of space
-            left_layout.addWidget(bottom_table, 1)  # Takes 1 part of space
-
-            # Create right container
-            right_container = QWidget()
-            right_layout = QVBoxLayout(right_container)
-            right_layout.addWidget(QLabel(f"Additional content for {title}"))
-
-            # Add left and right containers to main tab layout
             tab_layout.addWidget(left_container, 1)  # Takes 1 part of space
-            tab_layout.addWidget(right_container, 1)  # Takes 1 part of space
 
             tab_widget.addTab(tab, title)
 
@@ -163,8 +137,7 @@ class TradingApp(QMainWindow):
         self.setMenuBar(menubar)
         self.setBal.connect(self.setBalance)
         self.exchStatus.connect(self.setExchStatus)
-
-        self.orderbook = {}
+        self.orderbookUpdate.connect(self.changeOrderbookState)
 
     @Slot(str)
     def setBalance(self, bal):
@@ -176,35 +149,29 @@ class TradingApp(QMainWindow):
         assert isinstance(self.status_value, QLabel)
         self.status_value.setText(status)
 
-    @Slot(str, int, int, int, int)
-    def orderbook_update(
-        self, ticker: str, bid_p: int, bid_s: int, ask_p: int, ask_s: int
-    ):
-        assert isinstance(self.orderbook[ticker], Market)
-        self.orderbook[ticker].bid_price = bid_p
+    @Slot(str, str, str)
+    def changeOrderbookState(self, ticker: str, yes_str: str, no_str: str):
+        table = self.market2table[ticker]
+        row = self.market2row[ticker]
+        table.setItem(row, 1, QTableWidgetItem(yes_str))
+        table.setItem(row, 2, QTableWidgetItem(no_str))
 
 
-class Balance(QObject):
+class InfoStream(QObject):
     def __init__(self, user: User, window: QMainWindow):
         assert isinstance(user, User)
         assert isinstance(window, QMainWindow)
         self.user = user
         self.window = window
 
-    async def stream(self):
+    async def stream_balance(self):
         while True:
-            float_val = user.getBalance()["balance"] / 100
+            float_val = self.user.getBalance()["balance"] / 100
             str_val = f"$ {float_val:.02f}"
             self.window.setBal.emit(str_val)
             await asyncio.sleep(0.2)
 
-
-class Exchange(QObject):
-    def __init__(self, window: QMainWindow):
-        assert isinstance(window, QMainWindow)
-        self.window = window
-
-    async def stream(self):
+    async def stream_exchange_status(self):
         while True:
             time_left, is_open = exchange_status()
             assert isinstance(time_left, dt.timedelta)
@@ -220,7 +187,7 @@ class WebSocketClient(QObject):
     disconnected = Signal()
     error_occurred = Signal(str)
 
-    def __init__(self):
+    def __init__(self, mkts, orderbook_update_signal):
         super().__init__()
         self.websocket = QWebSocket()
         self.message_id = 1
@@ -231,6 +198,8 @@ class WebSocketClient(QObject):
         self.websocket.textMessageReceived.connect(self.on_text_message_received)
         self.websocket.errorOccurred.connect(self.on_error)
         self.orderbook = {}
+        self.orderbook_updated = orderbook_update_signal
+        self.tickers = mkts
 
     def connect_to_server(self, url, headers):
         """Connect to the WebSocket server with custom headers"""
@@ -247,9 +216,7 @@ class WebSocketClient(QObject):
         self.connected.emit()
 
         # Subscribe to desired channels after connection
-        tickers = utils.get_markets()
-        print(tickers)
-        self.subscribe_to_portfolio(tickers)
+        self.subscribe_to_portfolio(self.tickers)
 
     def on_disconnected(self):
         print("❌ WebSocket disconnected")
@@ -257,38 +224,65 @@ class WebSocketClient(QObject):
 
     def on_text_message_received(self, message):
         msg = json.loads(message)
-        if msg["type"] == "orderbook_delta":
-            mkt_ticker = msg["msg"]["market_ticker"]
-            mkt_found = False
-            for k, v in self.orderbook.items():
-                if k == mkt_ticker:
-                    mkt_found = True
-            assert mkt_found
-            side = msg["msg"]["side"]
-            price = msg["msg"]["price"]
-            delta = msg["msg"]["delta"]
-            if side == "yes":
-                mkt = self.orderbook[mkt_ticker]
-                yes_ob = self.orderbook[mkt_ticker].yes
-                for p, d in yes_ob:
-                    if price == p:
-                        d += delta
-                mkt.find_top_yes()
-            if side == "no":
-                mkt = self.orderbook[mkt_ticker]
-                no_ob = self.orderbook[mkt_ticker].no
-                for p, d in no_ob:
-                    if price == p:
-                        d += delta
-                mkt.find_top_no()
+        # Skip subscribed messages
+        if msg.get("type") == "subscribed":
+            return
 
-        elif msg["type"] == "orderbook_snapshot":
-            mkt_ticker = msg["msg"]["market_ticker"]
-            self.orderbook[mkt_ticker] = Market()
-            if "yes" in msg["msg"]:
-                self.orderbook[mkt_ticker].yes = msg["msg"]["yes"]
+        msg_data = msg.get("msg", {})
+        market_ticker = msg_data.get("market_ticker")
+
+        if not market_ticker:
+            return
+
+        # Initialize market if not present
+        if market_ticker not in self.orderbook:
+            self.orderbook[market_ticker] = {"yes": {}, "no": {}}
+
+        order_book = self.orderbook[market_ticker]
+
+        if msg["type"] == "orderbook_snapshot":
+            # Process snapshot
+            if "yes" in msg_data:
+                order_book["yes"] = {}
+                for price, qty in msg_data["yes"]:
+                    order_book["yes"][price] = qty
+            if "no" in msg_data:
+                order_book["no"] = {}
+                for price, qty in msg_data["no"]:
+                    order_book["no"][price] = qty
+
+        elif msg["type"] == "orderbook_delta":
+            # Process delta
+            side = msg_data.get("side")
+            price = msg_data.get("price")
+            delta = msg_data.get("delta")
+
+            if side not in ["yes", "no"] or not price:
+                return
+
+            current_qty = order_book[side].get(price, 0)
+            new_qty = current_qty + delta
+
+            if new_qty <= 0:
+                if price in order_book[side]:
+                    del order_book[side][price]
             else:
-                self.orderbook[mkt_ticker].no = msg["msg"]["no"]
+                order_book[side][price] = new_qty
+
+        # Remember that order_book lists sell prices
+        top_yes = max(order_book["yes"].keys()) if order_book["yes"] else None
+        top_no = max(order_book["no"].keys()) if order_book["no"] else None
+
+        # Format strings for display
+        no_str = (
+            f"{100 - top_yes} x {order_book['yes'].get(top_yes, 0)}" if top_yes else ""
+        )
+        yes_str = (
+            f"{100 - top_no} x {order_book['no'].get(top_no, 0)}" if top_no else ""
+        )
+
+        # Emit update signal
+        self.orderbook_updated.emit(market_ticker, yes_str, no_str)
 
     def on_error(self, error):
         error_msg = f"WebSocket error: {error}"
@@ -315,30 +309,44 @@ class WebSocketClient(QObject):
         self.websocket.close()
 
 
-if __name__ == "__main__":
-    mkts = utils.get_markets()
-    user = User()
+def main(all_sites: bool = False):
+    """Renders a GUI that displays the orderbook for
+    each site/event/market
+
+    Args:
+        all_sites: whether to include orderbook information for all sites. Only displays
+        orderbook data for NY by default.
+
+    """
     app = QApplication(sys.argv)
-    window = TradingApp(user)
-    balance = Balance(user, window)
-    exchange = Exchange(window)
+    sites = ["NY", "CHI", "AUS", "MIA", "DEN", "PHIL", "LAX"] if all_sites else ["NY"]
+    window = TradingApp(sites)
+
     path = "/trade-api/ws/v2"
     base = "wss://api.elections.kalshi.com"
-
     client = utils.setup_client()
     headers = client.request_headers("GET", "/trade-api/ws/v2")
     websocket_url = base + path
-
-    # Create and connect WebSocket client
-    ws_client = WebSocketClient()
+    event2markets = utils.get_markets_for_sites(sites)
+    logger.debug(event2markets)
+    mkts = []
+    for k, v in event2markets.items():
+        mkts.extend(v)
+    ws_client = WebSocketClient(mkts, window.orderbookUpdate)
     ws_client.connect_to_server(websocket_url, headers)
-
-    # Connect signals to handle events
     ws_client.error_occurred.connect(lambda err: print(f"Error: {err}"))
-    tasks = [balance.stream(), exchange.stream()]
+
+    user = User()
+    info_stream = InfoStream(user, window)
+    tasks = [info_stream.stream_balance(), info_stream.stream_exchange_status()]
 
     async def run_streams(tasks):
         await asyncio.gather(*tasks)
 
     window.show()
     QtAsyncio.run(run_streams(tasks), handle_sigint=True)
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    jsonargparse.auto_cli(main)

@@ -94,9 +94,23 @@ def get_events_kalshi():
     return evts
 
 
+def get_events_kalshi_sites(sites):
+    """
+    Used to verify correctness of hardcoded
+    events
+    """
+    url = "https://api.elections.kalshi.com/trade-api/v2/events"
+    evts = []
+    for site in sites:
+        params = {"series_ticker": f"KXHIGH{site}", "status": "open"}
+        response = requests.get(url, params=params).json()
+        evts.extend([evt["event_ticker"] for evt in response["events"]])
+    return evts
+
+
 def get_markets():
     url = "https://api.elections.kalshi.com/trade-api/v2/markets"
-    markets = []
+    markets = {}
     for site in kalshi_sites:
         seriesTkr = f"KXHIGH{site}"
         params = {"series_ticker": seriesTkr, "status": "open"}
@@ -107,6 +121,22 @@ def get_markets():
         tkrs = sorted(tkrs, key=lambda x: extract_num_from_mkt(x, site))
         markets.extend(tkrs)
     return markets
+
+
+def get_markets_for_sites(sites):
+    mkts_endpoint = "https://api.elections.kalshi.com/trade-api/v2/markets"
+    event_markets = {}
+    for site in sites:
+        events_site = get_events_kalshi_sites([site])
+        for event_site in events_site:
+            params = {"event_ticker": event_site, "status": "open"}
+            response = requests.get(mkts_endpoint, params=params)
+            assert response.status_code == 200
+            response = response.json()
+            tkrs = [i["ticker"] for i in response["markets"]]
+            tkrs = sorted(tkrs, key=lambda x: extract_num_from_mkt(x, site))
+            event_markets[event_site] = tkrs
+    return event_markets
 
 
 def extract_num_from_mkt(x, site):
