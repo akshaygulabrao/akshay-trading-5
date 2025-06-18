@@ -77,18 +77,19 @@ class TradingApp(QMainWindow):
 
         # Tab widget (70% height)
         tab_widget = QTabWidget()
-
+        self.market2table = {}
+        self.market2row = {}
         for title in sites:
             event_markets = utils.get_markets_for_sites([title])
             tab = QWidget()
+            tab_widget.addTab(tab, title)
             tab_layout = QHBoxLayout(tab)  # Main left-right split
 
             # Create left container (will hold top and bottom tables)
             left_container = QWidget()
             left_layout = QVBoxLayout(left_container)  # Top-bottom split
+            tab_layout.addWidget(left_container, 1)  # Takes 1 part of space
 
-            self.market2table = {}
-            self.market2row = {}
             for event, markets in event_markets.items():
                 table = QTableWidget(len(markets), 3)
                 table.setHorizontalHeaderLabels(
@@ -103,16 +104,14 @@ class TradingApp(QMainWindow):
                     self.market2row[market] = row
                 left_layout.addWidget(table, 1)  # Takes 1 part of space
 
-            for event, markets in event_markets.items():
-                for row, market in enumerate(markets):
-                    ticker_item = QTableWidgetItem(market)
-                    self.market2table[market].setItem(
-                        self.market2row[market], 0, ticker_item
-                    )
-
-            tab_layout.addWidget(left_container, 1)  # Takes 1 part of space
-
-            tab_widget.addTab(tab, title)
+        event_markets = utils.get_markets_for_sites(sites)
+        for event, markets in event_markets.items():
+            for row, market in enumerate(markets):
+                ticker_item = QTableWidgetItem(market)
+                logger.debug(self.market2table)
+                self.market2table[market].setItem(
+                    self.market2row[market], 0, ticker_item
+                )
 
         # Add widgets to main layout
         main_layout.addWidget(top_pane)

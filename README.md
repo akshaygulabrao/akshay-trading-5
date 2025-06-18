@@ -7,5 +7,5 @@ This application relies on PROD_KEYID and PROD_KEYFILE being already set up. See
 
 ```bash
 uv sync
-uv run app.py --all-sites
+uv run app.py --all-sites=true
 ```
