@@ -1,27 +1,20 @@
 [project]
 name = "akshay-trading-5"
 version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "bs4>=0.0.2",
-    "cryptography>=45.0.2",
-    "dotenv>=0.9.9",
-    "httpx>=0.28.1",
+    "cryptography>=45.0.4",
     "ipykernel>=6.29.5",
     "jsonargparse>=4.40.0",
     "loguru>=0.7.3",
-    "manim>=0.19.0",
-    "pandas>=2.2.3",
-    "pre-commit>=4.2.0",
-    "pyside6>=6.9.0",
-    "pytest>=8.3.5",
-    "pytest-asyncio>=0.26.0",
-    "pytest-mock>=3.14.0",
-    "pyzmq>=26.4.0",
-    "qasync>=0.27.1",
-    "requests>=2.32.3",
-    "scipy>=1.15.3",
-    "websocket>=0.2.1",
+    "pytest>=8.4.1",
+    "requests>=2.32.4",
+    "sortedcontainers>=2.4.0",
     "websockets>=15.0.1",
-    "yt-dlp>=2025.6.9",
 ]
+
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"

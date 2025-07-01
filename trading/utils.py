@@ -1,100 +1,96 @@
+from dataclasses import dataclass
 import os
 from cryptography.hazmat.primitives import serialization
 from datetime import datetime, timedelta, time
 from zoneinfo import ZoneInfo
+from enum import Enum
+from collections import defaultdict
 
-from dotenv import load_dotenv
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 import requests
 
-from kalshi_ref import KalshiHttpClient, KalshiWebSocketClient, Environment
+from trading.kalshi_ref import KalshiHttpClient, Environment
 
-from weather_info import nws_site2tz
-from weather_info import kalshi_sites
+from trading.weather_info import nws_site2tz
+from trading.weather_info import kalshi_sites
 
 
-def setup_prod():
+@dataclass(frozen=True)
+class MarketTicker:
+    name: str
+
+    def __str__(self) -> str:
+        return str(self.name)
+
+
+@dataclass(frozen=True)
+class EventTicker:
+    name: str
+
+    def __str__(self) -> str:
+        return str(self.name)
+
+
+class Site(Enum):
+    NY = "NY"
+    CHI = "CHI"
+    MIA = "MIA"
+    AUS = "AUS"
+    DEN = "DEN"
+    PHIL = "PHIL"
+    LAX = "LAX"
+
+
+def all_sites() -> list[Site]:
+    return [Site.NY, Site.CHI, Site.MIA, Site.AUS, Site.DEN, Site.PHIL, Site.LAX]
+
+
+def setup_prod() -> tuple[str, RSAPrivateKey, Environment]:
     """
     Returns (KEYID, private_key, env) for production setup.
+
+    Raises:
+        EnvironmentError: If required environment variables are not set
+        FileNotFoundError: If private key file is not found
+        ValueError: If private key is not an RSA key
+        Exception: For other errors during key loading
     """
-    # Add your production setup code here
-    load_dotenv()
-    env = Environment.PROD
+
     KEYID = os.getenv("PROD_KEYID")
+    if KEYID is None:
+        raise EnvironmentError("PROD_KEYID environment variable not set")
+
     KEYFILE = os.getenv("PROD_KEYFILE")
-    assert KEYFILE is not None
-    assert KEYID is not None
+    if KEYFILE is None:
+        raise EnvironmentError("PROD_KEYFILE environment variable not set")
 
     try:
         with open(KEYFILE, "rb") as key_file:
             private_key = serialization.load_pem_private_key(
                 key_file.read(),
-                password=None,  # Provide the password if your key is encrypted
+                password=None,
             )
+
+            if not isinstance(private_key, RSAPrivateKey):
+                raise ValueError("Loaded private key is not an RSA key")
+
     except FileNotFoundError:
         raise FileNotFoundError(f"Private key file not found at {KEYFILE}")
+    except ValueError as ve:
+        raise ValueError(f"Invalid private key format: {str(ve)}")
     except Exception as e:
         raise Exception(f"Error loading private key: {str(e)}")
 
-    return KEYID, private_key, env
+    return KEYID, private_key, Environment.PROD
 
 
-def setup_client():
+def setup_client() -> KalshiHttpClient:
     keyid, private_key, env = setup_prod()
     client = KalshiHttpClient(keyid, private_key, env)
     return client
 
 
-kalshi_url = "https://api.elections.kalshi.com"
-urls = {
-    "status": "/trade-api/v2/exchange/status",
-    "markets": "/trade-api/v2/markets",
-    "positions": "/trade-api/v2/portfolio/positions",
-    "orders": "/trade-api/v2/portfolio/orders",
-    "fills": "/trade-api/v2/portfolio/fills",
-}
-
-
-def get_events_hardcoded():
-    """
-    returns mapping of kalshi_sites to events
-    """
-    today = now("KNYC")
-    days = [today.strftime("%y%b%d").upper()]
-    if today.hour > 10:
-        days.append((today + timedelta(days=1)).strftime("%y%b%d").upper())
-    sites = ["NY", "CHI", "MIA", "AUS", "DEN", "LAX", "PHIL"]
-    site2days = {}
-    for site in sites:
-        site2days[site] = []
-        for day in days:
-            site2days[site].append(f"KXHIGH{site}-{day}")
-    return site2days
-
-
-def test_get_events_hardcoded():
-    s2d = get_events_hardcoded()
-    for site in s2d.keys():
-        print(site)
-        for day in s2d[site]:
-            print(" " * 2, day)
-
-
-def get_events_kalshi():
-    """
-    Used to verify correctness of hardcoded
-    events
-    """
-    url = "https://api.elections.kalshi.com/trade-api/v2/events"
-    sites = ["NY", "CHI", "MIA", "AUS", "DEN", "PHIL", "LAX"]
-    evts = []
-    for site in sites:
-        params = {"series_ticker": f"KXHIGH{site}", "status": "open"}
-        response = requests.get(url, params=params).json()
-        evts.extend([evt["event_ticker"] for evt in response["events"]])
-    return evts
-
-
-def get_events_kalshi_sites(sites):
+def get_events_for_sites(sites: list[Site]) -> list[EventTicker]:
     """
     Used to verify correctness of hardcoded
     events
@@ -102,48 +98,33 @@ def get_events_kalshi_sites(sites):
     url = "https://api.elections.kalshi.com/trade-api/v2/events"
     evts = []
     for site in sites:
-        params = {"series_ticker": f"KXHIGH{site}", "status": "open"}
+        params = {"series_ticker": f"KXHIGH{site.value}", "status": "open"}
         response = requests.get(url, params=params).json()
-        evts.extend([evt["event_ticker"] for evt in response["events"]])
+        evts.extend([EventTicker(evt["event_ticker"]) for evt in response["events"]])
     return evts
 
 
-def get_markets():
-    url = "https://api.elections.kalshi.com/trade-api/v2/markets"
-    markets = {}
-    for site in kalshi_sites:
-        seriesTkr = f"KXHIGH{site}"
-        params = {"series_ticker": seriesTkr, "status": "open"}
-        response = requests.get(url, params=params)
-        assert response.status_code == 200
-        response = response.json()
-        tkrs = [i["ticker"] for i in response["markets"]]
-        tkrs = sorted(tkrs, key=lambda x: extract_num_from_mkt(x, site))
-        markets.extend(tkrs)
-    return markets
-
-
-def get_markets_for_sites(sites):
+def get_markets_for_sites(sites: list[Site]) -> dict[EventTicker, list[MarketTicker]]:
     mkts_endpoint = "https://api.elections.kalshi.com/trade-api/v2/markets"
     event_markets = {}
     for site in sites:
-        events_site = get_events_kalshi_sites([site])
+        events_site = get_events_for_sites([site])
         for event_site in events_site:
-            params = {"event_ticker": event_site, "status": "open"}
+            params = {"event_ticker": event_site.name, "status": "open"}
             response = requests.get(mkts_endpoint, params=params)
             assert response.status_code == 200
             response = response.json()
             tkrs = [i["ticker"] for i in response["markets"]]
-            tkrs = sorted(tkrs, key=lambda x: extract_num_from_mkt(x, site))
-            event_markets[event_site] = tkrs
+            tkrs = sorted(tkrs, key=lambda x: extract_num_from_mkt(x, site.value))
+            event_markets[event_site] = [MarketTicker(i) for i in tkrs]
     return event_markets
 
 
-def extract_num_from_mkt(x, site):
+def extract_num_from_mkt(x, site) -> float:
     return float(x[5 + len(site) + 9 + 2 :])
 
 
-def now(site="KLAX"):
+def now(site="KLAX") -> datetime:
     time = datetime.now(tz=ZoneInfo(nws_site2tz[site]))
     return time
 
@@ -193,9 +174,4 @@ def format_timedelta(td: timedelta) -> str:
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     result = f"{hours}:{minutes:02d}:{seconds:02d}"
-    assert isinstance(result, str)
     return result
-
-
-if __name__ == "__main__":
-    test_get_events_hardcoded()

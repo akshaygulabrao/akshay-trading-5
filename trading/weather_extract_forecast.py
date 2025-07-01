@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 from collections import defaultdict
-from weather_info import nws_site2forecast
+from trading.weather_info import nws_site2forecast
 import httpx
 
 

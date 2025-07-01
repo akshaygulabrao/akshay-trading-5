@@ -63,13 +63,3 @@ nwsSite2fcast = {
     "KPHL": "https://forecast.weather.gov/MapClick.php?lat=40.08&lon=-75.01&lg=english&&FcstType=digital",
     "KLAX": "https://forecast.weather.gov/MapClick.php?lat=33.96&lon=-118.42&lg=english&&FcstType=digital",
 }
-
-if __name__ == "__main__":
-    from utils import get_events_hardcoded
-    from weather_sensor_reading import latest_sensor_reading
-
-    site2days = get_events_hardcoded()
-
-    for site in site2days.keys():
-        nws_site = kalshi_site2nws_site[site]
-        print(latest_sensor_reading(nws_site))

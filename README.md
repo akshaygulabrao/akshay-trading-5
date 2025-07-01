@@ -1,11 +1,30 @@
-# Kalshi Climate Orderbook Visualizer
+# Kalshi Orderbook Logger
 
-This repository is a PyQt Application that succinctly shows the orderbook for all of [Kalshi's](https://kalshi.com/?category=all) daily high weather contracts. It utilizes websockets to communicate with the Kalshi server with all orderbook updates.
+Dumps websocket messages in python.
 
-## Getting Started
-This application relies on PROD_KEYID and PROD_KEYFILE being already set up. See `utils.py` for more details on how to configure them.
+examples/demo_markets.py
+- examples to use
 
-```bash
-uv sync
-uv run app.py --all-sites=true
-```
+trading/kalshi_ref.py
+- starter code that kalshi gives you
+
+trading/order_placer.py
+- stale code that used to work, needs updating
+
+trading/orderbook.py
+- This script tracks and periodically logs WebSocket orderbook data for multiple market tickers, with graceful shutdown handling.
+
+trading/utils.py
+- utility functions for easily fetching exchange data for weather-betting tickers
+
+trading/weather_extract_forecast.py
+- fetches NWS forecasts given site
+
+trading/weather_info.py
+- helper info for weather_extract_forecast
+
+trading/weather_sensor_reading.py
+- fetches latest sensor readings
+
+trading/orderbook_update.py
+- parses orderbook messages to orderbook Data structure

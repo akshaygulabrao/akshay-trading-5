@@ -207,6 +207,8 @@ class KalshiWebSocketClient(KalshiBaseClient):
         await self.subscribe_to_tickers(tickers)
 
     async def subscribe_to_tickers(self, tickers):
+        if self.ws is None:
+            raise ValueError
         """Subscribe to ticker updates for all markets."""
         subscription_message = {
             "id": self.message_id,
@@ -218,6 +220,8 @@ class KalshiWebSocketClient(KalshiBaseClient):
 
     async def handler(self):
         """Handle incoming messages."""
+        if self.ws is None:
+            raise ValueError("self.ws is None")
         try:
             async for message in self.ws:
                 await self.on_message(message)
