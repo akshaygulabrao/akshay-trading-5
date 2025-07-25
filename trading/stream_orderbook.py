@@ -139,7 +139,6 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
     async def on_message(self, message_str) -> None:
         try:
             message = json.loads(message_str)
-            await self.broadcast(message_str)
 
             # Store the raw message only if recording
             if self.config.record:
@@ -148,9 +147,9 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
                 )
 
             if message["type"] == "orderbook_delta":
-                self.handle_orderbook_delta(message["msg"])
+                await self.handle_orderbook_delta(message["msg"])
             elif message["type"] == "orderbook_snapshot":
-                self.handle_orderbook_snapshot(message["msg"])
+                await self.handle_orderbook_snapshot(message["msg"])
             elif message["type"] == "subscribed":
                 # If command_line_output is False, just log a minimal confirmation
                 if self.config.command_line_output:
@@ -163,7 +162,7 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         except Exception as e:
             logger.error(f"err: {e}")
 
-    def handle_orderbook_delta(self, delta):
+    async def handle_orderbook_delta(self, delta):
         try:
             market_ticker = delta["market_ticker"]
 
@@ -172,12 +171,12 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
                 self.order_books[market_ticker] = OrderBook()
 
             self.order_books[market_ticker].process_delta(delta)
-            self.log_orderbook(market_ticker)
+            await self.log_orderbook(market_ticker)
             self.delta_count += 1
         except Exception as e:
             logger.error(f"Error processing delta: {e}")
 
-    def handle_orderbook_snapshot(self, snapshot):
+    async def handle_orderbook_snapshot(self, snapshot):
         try:
             market_ticker = snapshot["market_ticker"]
 
@@ -186,14 +185,14 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
             self.order_books[market_ticker].process_snapshot(snapshot)
 
             # Log the snapshot
-            self.log_orderbook(market_ticker)
+            await self.log_orderbook(market_ticker)
 
             if self.config.command_line_output:
                 logger.info("Received Orderbook Snapshot")
         except Exception as e:
             logger.error(f"Error processing snapshot: {e}")
 
-    def log_orderbook(self, market_ticker):
+    async def log_orderbook(self, market_ticker):
         """Logs top price level for Yes and No sides"""
         if self.shutdown_requested:
             return
@@ -214,10 +213,17 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
             top_no_price = next(iter(no_book.keys()), None)
             top_no_volume = no_book[top_no_price] if top_no_price is not None else 0
 
-            logger.info(
+            log_str = (
                 f"{market_ticker} | Yes: {top_yes_price}@{top_yes_volume} | "
                 f"No: {top_no_price}@{top_no_volume}"
             )
+            mkt = {
+                "ticker": market_ticker,
+                "yes": f"{top_yes_price}@{top_yes_volume}",
+                "no": f"{top_no_price}@{top_no_volume}",
+            }
+            logger.info(log_str)
+            await self.broadcast(mkt)
         except Exception as e:
             logger.error(f"Error logging orderbook for {market_ticker}: {e}")
 
@@ -249,11 +255,11 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         await self.graceful_shutdown()
         await super().on_close(1000, "Closing websocket")
 
-    async def broadcast(self, msg: str):
+    async def broadcast(self, msg: dict):
         dead = set()
         for c in self.clients:
             try:
-                await c.send_text(msg)
+                await c.send_json(msg)
             except:
                 dead.add(c)
         self.clients -= dead
