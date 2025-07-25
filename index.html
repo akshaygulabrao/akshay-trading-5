@@ -1,6 +1,35 @@
+<ul id="messages"></ul>
 <script>
   const ws = new WebSocket("ws://localhost:8000/ws");
-  ws.onopen    = ()    => console.log("📡 connected");
-  ws.onmessage = (evt) => console.log("📨", JSON.parse(evt.data));
-  ws.onclose   = ()    => console.log("❌ closed");
+  const messages = [];
+  const maxMessages = 10;
+  const messagesList = document.getElementById("messages");
+
+  function renderMessages() {
+    messagesList.innerHTML = "";
+    messages.forEach(msg => {
+      const li = document.createElement("li");
+      li.textContent = JSON.stringify(msg);
+      messagesList.appendChild(li);
+    });
+  }
+
+  ws.onopen = () => {
+    const li = document.createElement("li");
+    li.textContent = "📡 connected";
+    messagesList.appendChild(li);
+  };
+
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    messages.push(msg);
+    if (messages.length > maxMessages) messages.shift();
+    renderMessages();
+  };
+
+  ws.onclose = () => {
+    const li = document.createElement("li");
+    li.textContent = "❌ closed";
+    messagesList.appendChild(li);
+  };
 </script>

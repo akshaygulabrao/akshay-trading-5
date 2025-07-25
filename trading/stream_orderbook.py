@@ -11,6 +11,7 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
 from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 
 import websockets
 from loguru import logger
@@ -21,6 +22,16 @@ from trading.kalshi_ref import KalshiWebSocketClient
 from orderbook_update import OrderBook
 
 import trading.utils as utils
+
+
+fast_app = FastAPI()
+fast_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Or specify your frontend's URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @dataclass
@@ -128,6 +139,7 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
     async def on_message(self, message_str) -> None:
         try:
             message = json.loads(message_str)
+            await self.broadcast(message_str)
 
             # Store the raw message only if recording
             if self.config.record:
@@ -269,6 +281,27 @@ def handle_signal(signal_name):
     return handler
 
 
+async def run_fastapi_server():
+    import uvicorn
+
+    config = uvicorn.Config(fast_app, host="0.0.0.0", port=8000)
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
+@fast_app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    await client.add_client(ws)  # register with the broadcaster
+    try:
+        while True:
+            # keep the connection alive; we only broadcast outbound
+            await ws.receive_text()
+    except:
+        pass
+    finally:
+        await client.remove_client(ws)
+
+
 async def main():
     # Set up signal handlers
     cfg = draccus.parse(config_class=OrderbookConfig)
@@ -289,14 +322,9 @@ async def main():
     for market_list in mkts_dict.values():
         all_markets.extend(market_list)
 
-    try:
-        await client.connect([market.name for market in all_markets])
-    except asyncio.CancelledError:
-        logger.info("Main task cancelled during shutdown")
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-    finally:
-        await client.graceful_shutdown()
+    await asyncio.gather(
+        client.connect([market.name for market in all_markets]), run_fastapi_server()
+    )
 
 
 if __name__ == "__main__":
