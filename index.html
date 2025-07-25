@@ -1,0 +1,6 @@
+<script>
+  const ws = new WebSocket("ws://localhost:8000/ws");
+  ws.onopen    = ()    => console.log("📡 connected");
+  ws.onmessage = (evt) => console.log("📨", JSON.parse(evt.data));
+  ws.onclose   = ()    => console.log("❌ closed");
+</script>

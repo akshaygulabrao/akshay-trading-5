@@ -10,6 +10,7 @@ from collections import defaultdict
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
+from fastapi import FastAPI, WebSocket
 
 import websockets
 from loguru import logger
@@ -41,6 +42,7 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         self.delta_count = 0
         self.shutdown_requested = False
         self.tasks = []
+        self.clients: set[WebSocket] = set()
 
         # Only set up logging if record is True
         if self.config.record:
@@ -234,6 +236,22 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         """Clean up resources"""
         await self.graceful_shutdown()
         await super().on_close(1000, "Closing websocket")
+
+    async def broadcast(self, msg: str):
+        dead = set()
+        for c in self.clients:
+            try:
+                await c.send_text(msg)
+            except:
+                dead.add(c)
+        self.clients -= dead
+
+    async def add_client(self, ws: WebSocket):
+        await ws.accept()
+        self.clients.add(ws)
+
+    async def remove_client(self, ws: WebSocket):
+        self.clients.discard(ws)
 
 
 def handle_signal(signal_name):
