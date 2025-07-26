@@ -19,7 +19,7 @@ import draccus
 
 from trading import MarketTicker
 from trading.kalshi_ref import KalshiWebSocketClient
-from orderbook_update import OrderBook
+from trading.orderbook_update import OrderBook
 
 import trading.utils as utils
 

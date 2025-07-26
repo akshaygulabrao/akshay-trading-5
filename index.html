@@ -89,7 +89,7 @@ function updateCountdown() {
   const s = Math.floor((diff % 6e4)  / 1e3);
 
   document.getElementById('countdown').textContent =
-    `Time to 3 AM EDT: ${h}:${fmt(m)}:${fmt(s)}`;
+    `Time to 3 AM EST: ${h}:${fmt(m)}:${fmt(s)}`;
 }
 
 updateCountdown();
