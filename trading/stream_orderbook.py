@@ -118,23 +118,23 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         except Exception as e:
             logger.error(f"Error writing messages to file: {e}")
 
-    # async def periodic_publish(self):
-    #     """Periodically publishes orderbook data every second."""
-    #     while not self.shutdown_requested:
-    #         try:
-    #             await asyncio.sleep(10)
-    #             if self.shutdown_requested:
-    #                 break
+    async def periodic_publish(self):
+        """Periodically publishes orderbook data every second."""
+        while not self.shutdown_requested:
+            try:
+                await asyncio.sleep(5)
+                if self.shutdown_requested:
+                    break
 
-    #             for market_id in list(self.order_books.keys()):
-    #                 self.log_orderbook(market_id)
-    #             logger.info(
-    #                 f"periodic published finished, processed {self.delta_count} updates"
-    #             )
-    #             self.delta_count = 0
-    #         except asyncio.CancelledError:
-    #             logger.info("Periodic publish task cancelled")
-    #             break
+                for market_id in list(self.order_books.keys()):
+                    await self.log_orderbook(market_id)
+                logger.info(
+                    f"periodic published finished, processed {self.delta_count} updates"
+                )
+                self.delta_count = 0
+            except asyncio.CancelledError:
+                logger.info("Periodic publish task cancelled")
+                break
 
     async def on_message(self, message_str) -> None:
         try:
@@ -195,10 +195,6 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
     async def log_orderbook(self, market_ticker):
         """Logs top price level for Yes and No sides"""
         if self.shutdown_requested:
-            return
-
-        # Only log if command_line_output is True
-        if not self.config.command_line_output:
             return
 
         try:

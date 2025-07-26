@@ -1,35 +1,57 @@
-<ul id="messages"></ul>
+<table id="messagesTable" border="1" style="border-collapse: collapse; width: 100%;">
+  <thead>
+    <tr>
+      <th>Ticker</th>
+      <th>Yes</th>
+      <th>No</th>
+    </tr>
+  </thead>
+  <tbody id="messagesBody">
+  </tbody>
+</table>
+
 <script>
   const ws = new WebSocket("ws://localhost:8000/ws");
-  const messages = [];
-  const maxMessages = 10;
-  const messagesList = document.getElementById("messages");
+  const rows = new Map(); // ticker → <tr>
 
-  function renderMessages() {
-    messagesList.innerHTML = "";
-    messages.forEach(msg => {
-      const li = document.createElement("li");
-      li.textContent = JSON.stringify(msg);
-      messagesList.appendChild(li);
-    });
-  }
+  const tbody = document.getElementById("messagesBody");
 
   ws.onopen = () => {
-    const li = document.createElement("li");
-    li.textContent = "📡 connected";
-    messagesList.appendChild(li);
+    console.log("📡 connected");
   };
 
   ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
-    messages.push(msg);
-    if (messages.length > maxMessages) messages.shift();
-    renderMessages();
+    const { ticker, yes, no } = msg;
+
+    if (rows.has(ticker)) {
+      // Update existing row
+      const tr = rows.get(ticker);
+      tr.children[1].textContent = yes;
+      tr.children[2].textContent = no;
+    } else {
+      // Create new row
+      const tr = document.createElement("tr");
+
+      const tdTicker = document.createElement("td");
+      tdTicker.textContent = ticker;
+
+      const tdYes = document.createElement("td");
+      tdYes.textContent = yes;
+
+      const tdNo = document.createElement("td");
+      tdNo.textContent = no;
+
+      tr.appendChild(tdTicker);
+      tr.appendChild(tdYes);
+      tr.appendChild(tdNo);
+
+      tbody.appendChild(tr);
+      rows.set(ticker, tr);
+    }
   };
 
   ws.onclose = () => {
-    const li = document.createElement("li");
-    li.textContent = "❌ closed";
-    messagesList.appendChild(li);
+    console.log("❌ closed");
   };
 </script>
