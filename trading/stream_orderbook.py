@@ -218,7 +218,7 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
                 "yes": f"{top_yes_price}@{top_yes_volume}",
                 "no": f"{top_no_price}@{top_no_volume}",
             }
-            logger.info(log_str)
+            # logger.info(log_str)
             await self.broadcast(mkt)
         except Exception as e:
             logger.error(f"Error logging orderbook for {market_ticker}: {e}")
@@ -325,7 +325,9 @@ async def main():
         all_markets.extend(market_list)
 
     await asyncio.gather(
-        client.connect([market.name for market in all_markets]), run_fastapi_server()
+        client.connect([market.name for market in all_markets]),
+        run_fastapi_server(),
+        client.periodic_publish(),
     )
 
 

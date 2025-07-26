@@ -1,3 +1,15 @@
+<div style="margin: 1rem 0; font-family: monospace;">
+  <span id="countdown">Calculating…</span>
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  <label>
+    Portfolio Balance: $
+    <input id="balance"
+           type="number"
+           step="0.01"
+           placeholder="0.00"
+           style="width: 100px;" />
+  </label>
+</div>
 <table id="messagesTable" border="1" style="border-collapse: collapse; width: 100%;">
   <thead>
     <tr>
@@ -9,6 +21,7 @@
   <tbody id="messagesBody">
   </tbody>
 </table>
+
 
 <script>
   const ws = new WebSocket("ws://localhost:8000/ws");
@@ -54,4 +67,42 @@
   ws.onclose = () => {
     console.log("❌ closed");
   };
+</script>
+
+<script>
+/* ---------- countdown ---------- */
+function fmt(n) { return n.toString().padStart(2, '0'); }
+
+function updateCountdown() {
+  const now = new Date();
+  const target = new Date(now);
+
+  // 3 AM Eastern.  EST/EDT is detected automatically by the browser.
+  target.setHours(3, 0, 0, 0);
+
+  // If we’re already past 03:00 today → target becomes 03:00 tomorrow
+  if (now >= target) target.setDate(target.getDate() + 1);
+
+  const diff = target - now;                // ms remaining
+  const h = Math.floor(diff / 36e5);
+  const m = Math.floor((diff % 36e5) / 6e4);
+  const s = Math.floor((diff % 6e4)  / 1e3);
+
+  document.getElementById('countdown').textContent =
+    `Time to 3 AM EDT: ${h}:${fmt(m)}:${fmt(s)}`;
+}
+
+updateCountdown();
+setInterval(updateCountdown, 1000);
+
+/* ---------- balance ---------- */
+const balInput = document.getElementById('balance');
+
+// load saved value on startup
+balInput.value = localStorage.getItem('portfolioBalance') || '';
+
+// save on change
+balInput.addEventListener('input', () =>
+  localStorage.setItem('portfolioBalance', balInput.value)
+);
 </script>
