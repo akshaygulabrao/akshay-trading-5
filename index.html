@@ -33,48 +33,46 @@
     console.log("📡 connected");
   };
 
-  ws.onmessage = (evt) => {
-    const msg = JSON.parse(evt.data);
-    const { ticker, yes, no } = msg;
+ws.onmessage = (evt) => {
+  const msg = JSON.parse(evt.data);
+  const { ticker, yes, no } = msg;
 
-    const { site, date, strike } = parseTicker(ticker);
-    if (!strike) return;
+  const { site, date, strike } = parseTicker(ticker);
+  if (!strike) return;
 
-    const eventKey = `${site}-${date}`;
-    const tbody = ensureBody(eventKey);
+  const eventKey = `${site}-${date}`;
+  const tbody = ensureBody(eventKey);
 
-    let tr = null;
-    for (const row of tbody.rows) {
-      if (row.children[0]?.textContent === ticker) {
-        tr = row;
-        break;
-      }
+  let tr = null;
+  for (const row of tbody.rows) {
+    if (row.children[0]?.textContent === ticker) {
+      tr = row;
+      break;
     }
+  }
 
-    if (tr) {
-      tr.children[1].textContent = yes;
-      tr.children[2].textContent = no;
-    } else {
-      tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${ticker}</td>
-        <td>${yes}</td>
-        <td>${no}</td>
-      `;
-      tbody.appendChild(tr);
-    }
+  if (tr) {
+    tr.children[1].textContent = yes;
+    tr.children[2].textContent = no;
+  } else {
+    tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${ticker}</td>
+      <td>${yes}</td>
+      <td>${no}</td>
+    `;
+    tbody.appendChild(tr);
+  }
 
-    /* ---------- sort rows numerically ---------- */
-    const rows = Array.from(tbody.querySelectorAll('tr')).slice(1); // skip header
-    rows.sort((a, b) => {
-      const valA = parseFloat(a.children[0].textContent.match(/[TB](\d+(?:\.\d+)?)/)[0].replace(/[TB]/, ''));
-      const valB = parseFloat(b.children[0].textContent.match(/[TB](\d+(?:\.\d+)?)/)[0].replace(/[TB]/, ''));
-      return valA - valB;
-    });
-
-    // Re-append in sorted order
-    rows.forEach(row => tbody.appendChild(row));
-  };
+  // ✅ Keep sorting logic
+  const rows = Array.from(tbody.querySelectorAll('tr')).slice(1);
+  rows.sort((a, b) => {
+    const valA = parseFloat(a.children[0].textContent.match(/[TB](\d+(?:\.\d+)?)/)[0].replace(/[TB]/, ''));
+    const valB = parseFloat(b.children[0].textContent.match(/[TB](\d+(?:\.\d+)?)/)[0].replace(/[TB]/, ''));
+    return valA - valB;
+  });
+  rows.forEach(row => tbody.appendChild(row));
+};
 
   ws.onclose = () => {
     console.log("❌ closed");
@@ -149,33 +147,4 @@ function ensureBody(eventKey) {
   return tbody;
 }
 
-/* overwrite the original onmessage so we can group by event */
-ws.onmessage = (evt) => {
-  const msg = JSON.parse(evt.data);
-  const { ticker, yes, no } = msg;
-
-  const { site, date, strike } = parseTicker(ticker);
-  if (!strike) return;                     // skip EventTicker itself
-  const eventKey = `${site}-${date}`;
-
-  const tbody = ensureBody(eventKey);
-
-  let tr = null;
-  for (const row of tbody.rows) {
-    if (row.children[0]?.textContent === ticker) { tr = row; break; }
-  }
-
-  if (tr) {                               // update existing
-    tr.children[1].textContent = yes;
-    tr.children[2].textContent = no;
-  } else {                                // insert new
-    tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${ticker}</td>
-      <td>${yes}</td>
-      <td>${no}</td>
-    `;
-    tbody.appendChild(tr);
-  }
-};
 </script>
