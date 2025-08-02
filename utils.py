@@ -9,10 +9,9 @@ from collections import defaultdict
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 import requests
 
-from trading.kalshi_ref import KalshiHttpClient, Environment
+from kalshi_ref import KalshiHttpClient, Environment
 
-from trading.weather_info import nws_site2tz
-from trading.weather_info import kalshi_sites
+from weather_info import nws_site2tz, kalshi_sites
 
 
 @dataclass(frozen=True)

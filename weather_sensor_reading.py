@@ -7,8 +7,8 @@ import pandas as pd
 from loguru import logger
 
 import utils
-from trading.weather_info import nws_sites, accurate_sensor_minute, nws_site2kalshi_site
-import trading.weather_info as weather_info
+from weather_info import nws_sites, accurate_sensor_minute, nws_site2kalshi_site
+import weather_info as weather_info
 
 base_url = "https://api.mesowest.net/v2/stations/timeseries"
 

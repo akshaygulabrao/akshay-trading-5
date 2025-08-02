@@ -1,8 +1,3 @@
-"""
-Logs orderbook data to command line.
-I used to use this ~5/12/25, but realized the orderbook
-is pointless at my frequency.
-"""
 import asyncio
 import json
 import signal
@@ -17,34 +12,34 @@ import websockets
 from loguru import logger
 import draccus
 
-from trading import MarketTicker
-from trading.kalshi_ref import KalshiWebSocketClient
-from trading.orderbook_update import OrderBook
+from kalshi_ref import KalshiWebSocketClient
+from orderbook_update import OrderBook
+import utils
 
-import trading.utils as utils
+# --- Configuration ---
+RESTART_INTERVAL = 300  # 5 minutes in seconds
+shutdown_event = asyncio.Event()
 
+# --- Global Client Variable ---
+# This will be shared between the FastAPI server and the supervisor.
+# The supervisor will update this variable with the newest client instance.
+client: Optional["OrderbookWebSocketClient"] = None
 
+# --- FastAPI App Setup ---
 fast_app = FastAPI()
 fast_app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Or specify your frontend's URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-@dataclass
-class OrderbookConfig:
-    # whether to record the log later for replay
-    record: bool = field(default=False)
-    # display CLI output
-    command_line_output: bool = field(default=True)
-
-
+# ... (Your OrderbookWebSocketClient class remains unchanged) ...
 class OrderbookWebSocketClient(KalshiWebSocketClient):
     def __init__(
-        self, key_id, private_key, environment, config: OrderbookConfig
+        self, key_id, private_key, environment, config: "OrderbookConfig"
     ) -> None:
         super().__init__(key_id, private_key, environment)
         # Initialize order_books as a dictionary of OrderBook instances
@@ -73,10 +68,10 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
 
             # Create tasks for handler and periodic publishing
             handler_task = asyncio.create_task(self.handler())
-            # periodic_task = asyncio.create_task(self.periodic_publish())
+            publish_task = asyncio.create_task(self.periodic_publish())
 
             # Add periodic write task only if recording
-            self.tasks = [handler_task]
+            self.tasks = [handler_task, publish_task]
             if self.config.record:
                 periodic_write_task = asyncio.create_task(
                     self.periodic_write_messages()
@@ -113,8 +108,9 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
                     f.write("\n")  # Each message on a new line for easier parsing
 
             # Clear the messages after writing
+            num_messages = len(self.messages)
             self.messages.clear()
-            logger.info(f"Wrote {len(self.messages)} messages to {self.log_file_path}")
+            logger.info(f"Wrote {num_messages} messages to {self.log_file_path}")
         except Exception as e:
             logger.error(f"Error writing messages to file: {e}")
 
@@ -129,7 +125,7 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
                 for market_id in list(self.order_books.keys()):
                     await self.log_orderbook(market_id)
                 logger.info(
-                    f"periodic published finished, processed {self.delta_count} updates"
+                    f"Periodic publish finished, processed {self.delta_count} updates"
                 )
                 self.delta_count = 0
             except asyncio.CancelledError:
@@ -158,7 +154,7 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
                     logger.info("Orderbook connected successfully.")
             else:
                 if self.config.command_line_output:
-                    logger.info("Unknown message type:", message)
+                    logger.info(f"Unknown message type: {message}")
         except Exception as e:
             logger.error(f"err: {e}")
 
@@ -209,24 +205,25 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
             top_no_price = next(iter(no_book.keys()), None)
             top_no_volume = no_book[top_no_price] if top_no_price is not None else 0
 
-            log_str = (
-                f"{market_ticker} | Yes: {top_yes_price}@{top_yes_volume} | "
-                f"No: {top_no_price}@{top_no_volume}"
-            )
             mkt = {
                 "ticker": market_ticker,
-                "yes": f"{top_yes_price}@{top_yes_volume}",
-                "no": f"{top_no_price}@{top_no_volume}",
+                "yes": f"{top_yes_price}@{top_yes_volume}"
+                if top_yes_price is not None
+                else "N/A",
+                "no": f"{top_no_price}@{top_no_volume}"
+                if top_no_price is not None
+                else "N/A",
             }
-            # logger.info(log_str)
             await self.broadcast(mkt)
         except Exception as e:
             logger.error(f"Error logging orderbook for {market_ticker}: {e}")
 
     async def graceful_shutdown(self):
         """Clean up resources and write any remaining messages"""
+        if self.shutdown_requested:
+            return  # Already shutting down
         self.shutdown_requested = True
-        logger.info("Starting graceful shutdown...")
+        logger.info("Starting graceful shutdown of Kalshi client...")
 
         # Write any remaining messages
         if self.config.record:
@@ -240,11 +237,18 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         # Wait for tasks to complete cancellation
         await asyncio.gather(*self.tasks, return_exceptions=True)
 
-        # Close WebSocket connection if it exists
-        if hasattr(self, "ws"):
-            await self.ws.close()
+        if hasattr(self, "ws") and self.ws:
+            try:
+                # Simply attempt to close. This is safe even if it's already closed.
+                await self.ws.close()
+            except websockets.exceptions.ConnectionClosed:
+                # This is expected if the connection was already closed by the other side
+                pass
+            except Exception as e:
+                # Log any other unexpected errors during close
+                logger.error(f"Unexpected error while closing websocket: {e}")
 
-        logger.info("Graceful shutdown complete")
+        logger.info("Graceful shutdown of Kalshi client complete")
 
     async def on_close(self):
         """Clean up resources"""
@@ -252,13 +256,17 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         await super().on_close(1000, "Closing websocket")
 
     async def broadcast(self, msg: dict):
-        dead = set()
-        for c in self.clients:
-            try:
-                await c.send_json(msg)
-            except:
-                dead.add(c)
-        self.clients -= dead
+        # Create a list of coroutines to send to all clients
+        send_tasks = [c.send_json(msg) for c in self.clients]
+        # Run them concurrently and get results
+        results = await asyncio.gather(*send_tasks, return_exceptions=True)
+        # Find clients that failed and remove them
+        dead_clients = {
+            client
+            for client, result in zip(self.clients, results)
+            if isinstance(result, Exception)
+        }
+        self.clients -= dead_clients
 
     async def add_client(self, ws: WebSocket):
         await ws.accept()
@@ -268,71 +276,140 @@ class OrderbookWebSocketClient(KalshiWebSocketClient):
         self.clients.discard(ws)
 
 
-def handle_signal(signal_name):
-    """Signal handler factory"""
-
-    def handler(signum, frame):
-        logger.warning(f"Received {signal_name}, initiating graceful shutdown...")
-        # Set shutdown flag on the client instance
-        if "client" in globals():
-            client.shutdown_requested = True
-        # Get running event loop and create shutdown task
-        loop = asyncio.get_running_loop()
-        loop.create_task(client.graceful_shutdown())
-
-    return handler
+@dataclass
+class OrderbookConfig:
+    # whether to record the log later for replay
+    record: bool = field(default=False)
+    # display CLI output
+    command_line_output: bool = field(default=True)
 
 
 async def run_fastapi_server():
+    """
+    Runs the Uvicorn server once and for all. It will not be restarted.
+    """
     import uvicorn
 
-    config = uvicorn.Config(fast_app, host="0.0.0.0", port=8000)
+    config = uvicorn.Config(app=fast_app, host="0.0.0.0", port=8000, log_level="info")
     server = uvicorn.Server(config)
+    logger.info("Starting Uvicorn server on http://0.0.0.0:8000")
     await server.serve()
 
 
 @fast_app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    await client.add_client(ws)  # register with the broadcaster
+    """
+    FastAPI endpoint for clients to connect to our server.
+    It uses the global 'client' object to register itself.
+    """
+    if client is None:
+        logger.warning("WebSocket connection attempt before client is ready.")
+        await ws.close(code=1011, reason="Server is initializing, please try again.")
+        return
+
+    await client.add_client(ws)
     try:
         while True:
-            # keep the connection alive; we only broadcast outbound
+            # We just wait here. The client will be broadcasting to us.
+            # A receive_text() keeps the connection alive and handles client-side closes.
             await ws.receive_text()
-    except:
-        pass
+    except Exception:
+        # This will trigger when the client disconnects
+        logger.info("Client disconnected from /ws endpoint.")
     finally:
-        await client.remove_client(ws)
+        if client:
+            await client.remove_client(ws)
+
+
+async def kalshi_connection_supervisor(cfg: OrderbookConfig, key_id, private_key, env):
+    """
+    Supervises the Kalshi client connection, restarting it periodically.
+    THIS function is now the one that loops.
+    """
+    global client
+    while not shutdown_event.is_set():
+        try:
+            # 1. Create a fresh client for this iteration
+            client = OrderbookWebSocketClient(
+                key_id=key_id, private_key=private_key, environment=env, config=cfg
+            )
+            logger.info("Created new Kalshi client instance.")
+
+            # 2. Get market data
+            sites = utils.all_sites()
+            mkts_dict = utils.get_markets_for_sites(sites)
+            all_markets = [
+                m.name for market_list in mkts_dict.values() for m in market_list
+            ]
+
+            # 3. Run the client connection until the timer expires
+            logger.info(
+                f"Connecting to Kalshi... Will restart in {RESTART_INTERVAL} seconds."
+            )
+            await asyncio.wait_for(
+                client.connect(all_markets), timeout=RESTART_INTERVAL
+            )
+
+        except asyncio.TimeoutError:
+            logger.info(f"Restart interval of {RESTART_INTERVAL}s reached.")
+        except asyncio.CancelledError:
+            logger.info("Supervisor task cancelled. Shutting down.")
+            break
+        except Exception as e:
+            logger.error(
+                f"Kalshi client failed with an error: {e}. Retrying in 10 seconds."
+            )
+            await asyncio.sleep(10)  # Wait before retrying on failure
+        finally:
+            # 4. Gracefully shut down the *current* client before the next loop
+            if client:
+                await client.graceful_shutdown()
+
+        logger.info("Kalshi client restart cycle complete. Reconnecting...")
 
 
 async def main():
-    # Set up signal handlers
+    """
+    The main orchestrator. Sets up and runs the server and supervisor concurrently.
+    """
+
+    def signal_handler(sig):
+        logger.warning(f"Received signal {sig}, initiating shutdown...")
+        shutdown_event.set()
+
+    loop = asyncio.get_running_loop()
+    loop.add_signal_handler(signal.SIGINT, lambda: signal_handler("SIGINT"))
+    loop.add_signal_handler(signal.SIGTERM, lambda: signal_handler("SIGTERM"))
+
+    # --- Initial Setup ---
     cfg = draccus.parse(config_class=OrderbookConfig)
-    signal.signal(signal.SIGINT, handle_signal("SIGINT"))
-    signal.signal(signal.SIGTERM, handle_signal("SIGTERM"))
-
     KEYID, private_key, env = utils.setup_prod()
-    sites = utils.all_sites()
-    mkts_dict = utils.get_markets_for_sites(sites)
 
-    global client
-    client = OrderbookWebSocketClient(
-        key_id=KEYID, private_key=private_key, environment=env, config=cfg
+    # --- Create and run main tasks ---
+    server_task = asyncio.create_task(run_fastapi_server())
+    supervisor_task = asyncio.create_task(
+        kalshi_connection_supervisor(cfg, KEYID, private_key, env)
     )
 
-    # Flatten the dictionary values to get all market tickers
-    all_markets: list[MarketTicker] = []
-    for market_list in mkts_dict.values():
-        all_markets.extend(market_list)
-
-    await asyncio.gather(
-        client.connect([market.name for market in all_markets]),
-        run_fastapi_server(),
-        client.periodic_publish(),
+    # Wait for either task to finish (which they shouldn't unless there's an error or shutdown)
+    done, pending = await asyncio.wait(
+        [server_task, supervisor_task], return_when=asyncio.FIRST_COMPLETED
     )
+
+    # If we get here, one of the main tasks has stopped. Time to shut down everything.
+    shutdown_event.set()
+    for task in pending:
+        task.cancel()
+
+    if client:
+        await client.graceful_shutdown()
+
+    await asyncio.gather(*pending, return_exceptions=True)
+    logger.info("Application shutdown complete.")
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Received KeyboardInterrupt, shutdown complete")
+        logger.info("Application stopped by KeyboardInterrupt.")

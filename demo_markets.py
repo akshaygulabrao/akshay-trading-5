@@ -1,5 +1,5 @@
-import trading.utils as utils
-from trading.utils import Site
+import utils as utils
+from utils import Site
 from loguru import logger
 
 # the setup prod fn fetches all credentials needed to interact with the kalshi API
