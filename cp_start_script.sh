@@ -26,7 +26,7 @@ FILES=(
   "/Users/ox/workspace/akshay-trading-5/kalshi_ref.py"
   "/Users/ox/workspace/akshay-trading-5/pyproject.toml"
   "/Users/ox/workspace/akshay-trading-5/orderbook_update.py"
-  "/Users/ox/workspace/akshay-trading-5/weather_info.py"
+  "/Users/ox/workspace/akshay-trading-5/weather_sensor_reading.py"
 )
 
 # ---------- 4. Pre-flight checks ----------
