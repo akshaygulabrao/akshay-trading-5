@@ -10,73 +10,87 @@
            style="width: 100px;" />
   </label>
 </div>
-<table id="messagesTable" border="1" style="border-collapse: collapse; width: 100%;">
+<table id="master" border="1" width="100%">
   <thead>
     <tr>
-      <th>Ticker</th>
-      <th>Yes</th>
-      <th>No</th>
+      <th>Order book</th>
+      <th>Info</th>
     </tr>
   </thead>
-  <tbody id="messagesBody">
-  </tbody>
+  <tbody></tbody>
 </table>
-
-
+<style>
+  #master td { vertical-align: top; }
+</style>
 <script>
   const ws = new WebSocket("ws://107.22.134.132:8000/ws");
-  const rows = new Map(); // ticker → <tr>
+  const rows = new Map();               // ticker → <tr>
+  const books = new Map();              // eventKey → <table class=book>
 
-  const tbody = document.getElementById("messagesBody");
+  ws.onopen  = () => console.log("📡 connected");
+  ws.onclose = () => console.log("❌ closed");
 
-  ws.onopen = () => {
-    console.log("📡 connected");
-  };
+  ws.onmessage = (evt) => {
+    const { ticker, yes, no } = JSON.parse(evt.data);
+    const { site, date, strike } = parseTicker(ticker);
+    if (!strike) return;
 
-ws.onmessage = (evt) => {
-  const msg = JSON.parse(evt.data);
-  const { ticker, yes, no } = msg;
+    const eventKey = `${site}-${date}`;
+    let book = books.get(eventKey);
 
-  const { site, date, strike } = parseTicker(ticker);
-  if (!strike) return;
+    /* ---------- create or locate the site-day row ---------- */
+    let siteRow = [...master.tBodies[0].rows].find(r => r.dataset.eventKey === eventKey);
+    if (!siteRow) {
+      siteRow = master.tBodies[0].insertRow();
+      siteRow.dataset.eventKey = eventKey;
 
-  const eventKey = `${site}-${date}`;
-  const tbody = ensureBody(eventKey);
+      /* left cell holds the orderbook table */
+      const left = siteRow.insertCell();
+      book = document.createElement('table');
+      book.className = 'book';
+      book.border = 1;
+      book.style.width = '100%';
+      book.appendChild(document.createElement('tbody'));
+      left.appendChild(book);
+      books.set(eventKey, book);
 
-  let tr = null;
-  for (const row of tbody.rows) {
-    if (row.children[0]?.textContent === ticker) {
-      tr = row;
-      break;
+      /* right cell (empty for now) */
+      siteRow.insertCell();
+      siteRow.cells[0].style.width = '50%';
+      siteRow.cells[1].style.width = '50%';
     }
-  }
+    /* ------------------------------------------------------- */
 
-  if (tr) {
-    tr.children[1].textContent = yes;
-    tr.children[2].textContent = no;
-  } else {
-    tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${ticker}</td>
-      <td>${yes}</td>
-      <td>${no}</td>
-    `;
-    tbody.appendChild(tr);
-  }
+    /* locate or create the strike row in the orderbook table */
+    const tbody = book.tBodies[0];
+    let tr = [...tbody.rows].find(r => r.dataset.ticker === ticker);
+    if (tr) {
+      tr.children[1].textContent = yes;
+      tr.children[2].textContent = no;
+    } else {
+      tr = tbody.insertRow();
+      tr.dataset.ticker = ticker;
+      tr.innerHTML = `
+        <td style="width:35ch;">${ticker}</td>
+        <td style="width:10ch;">${yes}</td>
+        <td style="width:10ch;">${no}</td>
+      `;
+    }
 
-  // ✅ Keep sorting logic
-  const rows = Array.from(tbody.querySelectorAll('tr')).slice(1);
-  rows.sort((a, b) => {
-    const valA = parseFloat(a.children[0].textContent.match(/[TB](\d+(?:\.\d+)?)/)[0].replace(/[TB]/, ''));
-    const valB = parseFloat(b.children[0].textContent.match(/[TB](\d+(?:\.\d+)?)/)[0].replace(/[TB]/, ''));
-    return valA - valB;
-  });
-  rows.forEach(row => tbody.appendChild(row));
-};
-
-  ws.onclose = () => {
-    console.log("❌ closed");
+    /* keep strikes sorted numerically */
+    [...tbody.children]
+      .sort((a, b) => {
+        const sa = parseFloat(a.children[0].textContent.match(/[TB]([\d.]+)/)[1]);
+        const sb = parseFloat(b.children[0].textContent.match(/[TB]([\d.]+)/)[1]);
+        return sa - sb;
+      })
+      .forEach(r => tbody.appendChild(r));
   };
+
+  function parseTicker(raw) {
+    const p = raw.split('-');
+    return { site: p[0], date: p[1], strike: p[2] || null };
+  }
 </script>
 
 <script>
@@ -115,36 +129,4 @@ balInput.value = localStorage.getItem('portfolioBalance') || '';
 balInput.addEventListener('input', () =>
   localStorage.setItem('portfolioBalance', balInput.value)
 );
-</script>
-<script>
-/* ---------- helpers ---------- */
-function parseTicker(raw) {
-  // raw = "KXHIGHNY-25JUL04-T82"  or  "KXHIGHNY-25JUL03"
-  const parts = raw.split('-');
-  return {
-    site: parts[0],               // "KXHIGHNY"
-    date: parts[1],               // "25JUL04"
-    strike: parts[2] || null      // "T82"  (null for EventTicker)
-  };
-}
-
-/* ---------- render layer ---------- */
-const table = document.getElementById('messagesTable');
-const bodies = new Map();   // "KXHIGHNY-25JUL03" → <tbody>
-
-function ensureBody(eventKey) {
-  if (bodies.has(eventKey)) return bodies.get(eventKey);
-
-  // create new tbody with its own header row
-  const tbody = document.createElement('tbody');
-  tbody.innerHTML = `
-    <tr style="background:#f4f4f4;">
-      <th colspan="3">${eventKey}</th>
-    </tr>
-  `;
-  table.appendChild(tbody);
-  bodies.set(eventKey, tbody);
-  return tbody;
-}
-
 </script>
