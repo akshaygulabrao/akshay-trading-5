@@ -1,132 +1,192 @@
-<div style="margin: 1rem 0; font-family: monospace;">
-  <span id="countdown">Calculating…</span>
-  &nbsp;&nbsp;|&nbsp;&nbsp;
-  <label>
-    Portfolio Balance: $
-    <input id="balance"
-           type="number"
-           step="0.01"
-           placeholder="0.00"
-           style="width: 100px;" />
-  </label>
-</div>
-<table id="master" border="1" width="100%">
-  <thead>
-    <tr>
-      <th>Order book</th>
-      <th>Info</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
-<style>
-  #master td { vertical-align: top; }
-</style>
-<script>
-  const ws = new WebSocket("ws://107.22.134.132:8000/ws");
-  const rows = new Map();               // ticker → <tr>
-  const books = new Map();              // eventKey → <table class=book>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Live Order-Book</title>
 
-  ws.onopen  = () => console.log("📡 connected");
-  ws.onclose = () => console.log("❌ closed");
-
-  ws.onmessage = (evt) => {
-    const { ticker, yes, no } = JSON.parse(evt.data);
-    const { site, date, strike } = parseTicker(ticker);
-    if (!strike) return;
-
-    const eventKey = `${site}-${date}`;
-    let book = books.get(eventKey);
-
-    /* ---------- create or locate the site-day row ---------- */
-    let siteRow = [...master.tBodies[0].rows].find(r => r.dataset.eventKey === eventKey);
-    if (!siteRow) {
-      siteRow = master.tBodies[0].insertRow();
-      siteRow.dataset.eventKey = eventKey;
-
-      /* left cell holds the orderbook table */
-      const left = siteRow.insertCell();
-      book = document.createElement('table');
-      book.className = 'book';
-      book.border = 1;
-      book.style.width = '100%';
-      book.appendChild(document.createElement('tbody'));
-      left.appendChild(book);
-      books.set(eventKey, book);
-
-      /* right cell (empty for now) */
-      siteRow.insertCell();
-      siteRow.cells[0].style.width = '50%';
-      siteRow.cells[1].style.width = '50%';
-    }
-    /* ------------------------------------------------------- */
-
-    /* locate or create the strike row in the orderbook table */
-    const tbody = book.tBodies[0];
-    let tr = [...tbody.rows].find(r => r.dataset.ticker === ticker);
-    if (tr) {
-      tr.children[1].textContent = yes;
-      tr.children[2].textContent = no;
-    } else {
-      tr = tbody.insertRow();
-      tr.dataset.ticker = ticker;
-      tr.innerHTML = `
-        <td style="width:35ch;">${ticker}</td>
-        <td style="width:10ch;">${yes}</td>
-        <td style="width:10ch;">${no}</td>
-      `;
+  <!-- ==========  STYLES  ========== -->
+  <style>
+    /* page layout */
+    body {
+      display: flex;
+      flex-direction: column;   /* ← add this line */
+      align-items: center;      /* keep it centered */
+      margin: 0;
+      padding: 20px;
+      font-family: sans-serif;
     }
 
-    /* keep strikes sorted numerically */
-    [...tbody.children]
-      .sort((a, b) => {
-        const sa = parseFloat(a.children[0].textContent.match(/[TB]([\d.]+)/)[1]);
-        const sb = parseFloat(b.children[0].textContent.match(/[TB]([\d.]+)/)[1]);
-        return sa - sb;
-      })
-      .forEach(r => tbody.appendChild(r));
-  };
+    /* top countdown / balance bar */
+    #topBar {
+      margin: 1rem 0;
+      font-family: monospace;
+    }
+    #balance {
+      width: 100px;
+    }
 
-  function parseTicker(raw) {
-    const p = raw.split('-');
-    return { site: p[0], date: p[1], strike: p[2] || null };
+    /* master table (outer grid) */
+    #master {
+      border: 1px solid black;
+      border-collapse: collapse;
+    }
+    #master th,
+    #master td {
+      border: 1px solid black;
+      padding: 4px 8px;
+      text-align: center;
+    }
+
+    /* inner order-book tables */
+    .book {
+      border: none;
+      border-collapse: collapse;
+      margin: 0 auto 20px;     /* 20 px below each book */
+    }
+    .book td,
+    .book th {
+      border: none;
+      padding: 2px 6px;
+    }
+
+    /* site-day header */
+    .siteDayLabel {
+      font-size: 1em;
+      color: #000;
+      margin: 8px 0 4px;       /* 8 px above, 4 px below */
+    }
+  </style>
+</head>
+
+<body>
+  <!-- ==========  TOP BAR  ========== -->
+  <div id="topBar">
+    <span id="countdown">Calculating…</span>
+    &nbsp;&nbsp;|&nbsp;&nbsp;
+    <label>
+      Portfolio Balance: $
+      <input id="balance"
+             type="number"
+             step="0.01"
+             placeholder="0.00"/>
+    </label>
+  </div>
+
+  <!-- ==========  MASTER TABLE  ========== -->
+  <table id="master">
+    <thead><tr></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- ==========  JAVASCRIPT  ========== -->
+  <script>
+    /* ---------- WebSocket & Grid ---------- */
+    const ws   = new WebSocket("ws://107.22.134.132:8000/ws");
+    const rows = new Map();   // ticker → <tr>
+    const books= new Map();   // eventKey → <table class=book>
+
+    ws.onopen  = () => console.log("📡 connected");
+    ws.onclose = () => console.log("❌ closed");
+
+ws.onmessage = (evt) => {
+  const { ticker, yes, no } = JSON.parse(evt.data);
+  const { site, date, strike } = parseTicker(ticker);
+  if (!strike) return;
+
+  const siteKey = site;
+
+  /* locate or create the site row in the master table */
+  let siteRow = [...master.tBodies[0].rows]
+                .find(r => r.dataset.siteKey === siteKey);
+  if (!siteRow) {
+    siteRow = master.tBodies[0].insertRow();
+    siteRow.dataset.siteKey = siteKey;
   }
-</script>
 
-<script>
-/* ---------- countdown ---------- */
-function fmt(n) { return n.toString().padStart(2, '0'); }
+  /* locate or create the date cell (td) inside the site row */
+  let dateCell = [...siteRow.cells]
+                 .find(c => c.dataset.date === date);
 
-function updateCountdown() {
-  const now = new Date();
-  const target = new Date(now);
+  if (!dateCell) {
+    dateCell = document.createElement('td');
+    dateCell.dataset.date = date;
 
-  // 3 AM Eastern.  EST/EDT is detected automatically by the browser.
-  target.setHours(3, 0, 0, 0);
+    /* insert date cell in descending date order */
+    const allCells = [...siteRow.cells];
+    let insertBefore = null;
+    for (const c of allCells) {
+      if (new Date(date) > new Date(c.dataset.date)) {
+        insertBefore = c;
+        break;
+      }
+    }
+    siteRow.insertBefore(dateCell, insertBefore);
 
-  // If we’re already past 03:00 today → target becomes 03:00 tomorrow
-  if (now >= target) target.setDate(target.getDate() + 1);
+    /* add label and book table */
+    dateCell.innerHTML = `<div class="siteDayLabel">${site} ${date}</div>`;
+    const book = document.createElement('table');
+    book.className = 'book';
+    dateCell.appendChild(book);
+    books.set(`${site}-${date}`, book);
+  }
 
-  const diff = target - now;                // ms remaining
-  const h = Math.floor(diff / 36e5);
-  const m = Math.floor((diff % 36e5) / 6e4);
-  const s = Math.floor((diff % 6e4)  / 1e3);
+  /* locate or create the strike row inside the date’s book */
+  const book = books.get(`${site}-${date}`);
+  const tbody = book.tBodies[0] || book.appendChild(document.createElement('tbody'));
+  let tr = [...tbody.rows].find(r => r.dataset.ticker === ticker);
+  if (tr) {
+    tr.children[1].textContent = yes;
+    tr.children[2].textContent = no;
+  } else {
+    tr = tbody.insertRow();
+    tr.dataset.ticker = ticker;
+    tr.innerHTML = `
+      <td>${ticker}</td>
+      <td>${yes}</td>
+      <td>${no}</td>`;
+  }
 
-  document.getElementById('countdown').textContent =
-    `Time to 3 AM EST: ${h}:${fmt(m)}:${fmt(s)}`;
-}
+  /* keep strikes sorted numerically */
+  [...tbody.children]
+    .sort((a, b) => {
+      const sa = parseFloat(a.children[0].textContent.match(/[TB]([\d.]+)/)[1]);
+      const sb = parseFloat(b.children[0].textContent.match(/[TB]([\d.]+)/)[1]);
+      return sa - sb;
+    })
+    .forEach(r => tbody.appendChild(r));
+};
 
-updateCountdown();
-setInterval(updateCountdown, 1000);
+    function parseTicker(raw) {
+      const p = raw.split('-');
+      return { site: p[0], date: p[1], strike: p[2] || null };
+    }
 
-/* ---------- balance ---------- */
-const balInput = document.getElementById('balance');
+    /* ---------- Countdown to 3 AM EST ---------- */
+    const fmt = n => n.toString().padStart(2,'0');
 
-// load saved value on startup
-balInput.value = localStorage.getItem('portfolioBalance') || '';
+    function updateCountdown() {
+      const now = new Date();
+      const target = new Date(now);
+      target.setHours(3,0,0,0);
+      if (now >= target) target.setDate(target.getDate()+1);
 
-// save on change
-balInput.addEventListener('input', () =>
-  localStorage.setItem('portfolioBalance', balInput.value)
-);
-</script>
+      const diff = target - now;
+      const h = Math.floor(diff / 36e5);
+      const m = Math.floor((diff % 36e5) / 6e4);
+      const s = Math.floor((diff % 6e4) / 1e3);
+
+      document.getElementById('countdown').textContent =
+        `Time to 3 AM EST: ${h}:${fmt(m)}:${fmt(s)}`;
+    }
+    updateCountdown();
+    setInterval(updateCountdown,1000);
+
+    /* ---------- Portfolio Balance ---------- */
+    const balInput = document.getElementById('balance');
+    balInput.value = localStorage.getItem('portfolioBalance') || '';
+    balInput.addEventListener('input', () =>
+      localStorage.setItem('portfolioBalance', balInput.value)
+    );
+  </script>
+</body>
+</html>
