@@ -20,6 +20,8 @@ class OrderBook:
                 "no": SortedDict(lambda x: -x),
             }
 
+        self.markets[market_ticker]["yes"].clear()
+        self.markets[market_ticker]["no"].clear()
         # Process yes side if exists
         if "yes" in snapshot:
             for price, volume in snapshot["yes"]:

@@ -85,7 +85,7 @@ def parse_station_rows(payload: dict) -> list[dict]:
                 "date_time": dt,
                 "air_temp": obs["air_temp_set_1"][idx],
                 "relative_humidity": obs["relative_humidity_set_1"][idx],
-                "dew_point": obs["dew_point_temperature_set_1"][idx],
+                "dew_point": obs["dew_point_temperature_set_1d"][idx],
                 "wind_speed": obs["wind_speed_set_1"][idx],
             }
         )
