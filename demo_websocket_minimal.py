@@ -83,6 +83,18 @@ async def orderbook_websocket():
             elif msg_type == "orderbook_delta":
                 print(f"Orderbook update: {data}")
 
+            elif msg_type == "fill":
+                print(f"User Fills: {data}")
+
+            elif msg_type == "market_position":
+                print(f"Market position: {data}")
+
+            elif msg_type == "market_lifecycle_v2":
+                print(f"market_lifecycle: {data}")
+
+            elif msg_type == "event_lifecycle":
+                print(f"event_lifecycel: {data}")
+
             elif msg_type == "error":
                 print(f"Error: {data}")
 
