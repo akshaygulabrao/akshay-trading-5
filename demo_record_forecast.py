@@ -166,13 +166,13 @@ STATIONS = ["KNYC", "KMDW", "KAUS", "KMIA", "KDEN", "KPHL", "KLAX"]
 if __name__ == "__main__":
     conn = init_db(args.db_file)
     while True:
-        for st in STATIONS:
-            try:
-                store_forecast(conn, st)
-            except Exception as exc:
-                print("ERROR:", exc)
         now = datetime.now()
         next_run = now.replace(minute=0, second=0, microsecond=0) + timedelta(
             hours=1, minutes=10
         )
         time.sleep((next_run - now).total_seconds())
+        for st in STATIONS:
+            try:
+                store_forecast(conn, st)
+            except Exception as exc:
+                print("ERROR:", exc)
