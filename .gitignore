@@ -23,3 +23,4 @@ ex.py
 *pem
 .DS_STORE
 weather.db
+forecast.db

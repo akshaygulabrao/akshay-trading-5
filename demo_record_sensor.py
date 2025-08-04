@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS weather (
     relative_humidity  REAL,
     dew_point          REAL,
     wind_speed         REAL,
-    UNIQUE(station, observation_time)          -- prevents duplicates
+    UNIQUE(station, observation_time)
 );
 """
 
@@ -51,18 +51,22 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 
 
 def store_latest_reading(station_code="KLAX"):
-    data = weather_sensor_reading.get_timeseries(station_code)[-1]
-    record = (
-        dt.now(timezone.utc).isoformat(timespec="seconds"),
-        station_code,
-        data["date_time"],
-        data["air_temp"],
-        data["relative_humidity"],
-        data["dew_point"],
-        data["wind_speed"],
-    )
+    readings = weather_sensor_reading.get_timeseries(station_code)[-2:]
+    records = []
+    for data in readings:
+        record = (
+            dt.now(timezone.utc).isoformat(timespec="seconds"),
+            station_code,
+            data["date_time"],
+            data["air_temp"],
+            data["relative_humidity"],
+            data["dew_point"],
+            data["wind_speed"],
+        )
+        records.append(record)
+
     with sqlite3.connect(DB_FILE) as conn:
-        conn.execute(INSERT_SQL, record)
+        conn.executemany(INSERT_SQL, records)
         conn.commit()
 
 
