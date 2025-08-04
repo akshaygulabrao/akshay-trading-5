@@ -59,7 +59,7 @@ async def orderbook_websocket():
         print(f"Connected! Subscribing to orderbook for {MARKET_TICKER}")
 
         # Subscribe to orderbook
-        subscribe_msg = {
+        ob_subscribe_msg = {
             "id": 1,
             "cmd": "subscribe",
             "params": {
@@ -67,7 +67,25 @@ async def orderbook_websocket():
                 "market_tickers": MARKET_TICKER,
             },
         }
-        await websocket.send(json.dumps(subscribe_msg))
+        await websocket.send(json.dumps(ob_subscribe_msg))
+
+        lifecycle_subscribe_msg = {
+            "id": 2,
+            "cmd": "subscribe",
+            "params": {
+                "channels": ["market_lifecycle_v2"],
+            },
+        }
+        await websocket.send(json.dumps(lifecycle_subscribe_msg))
+
+        mkt_pos_subscribe_msg = {
+            "id": 3,
+            "cmd": "subscribe",
+            "params": {
+                "channels": ["market_positions"],
+            },
+        }
+        await websocket.send(json.dumps(mkt_pos_subscribe_msg))
 
         # Process messages
         async for message in websocket:
@@ -78,10 +96,12 @@ async def orderbook_websocket():
                 print(f"Subscribed: {data}")
 
             elif msg_type == "orderbook_snapshot":
-                print(f"Orderbook snapshot: {data}")
+                # print(f"Orderbook snapshot: {data}")
+                a = None
 
             elif msg_type == "orderbook_delta":
-                print(f"Orderbook update: {data}")
+                # print(f"Orderbook update: {data}")
+                a = None
 
             elif msg_type == "fill":
                 print(f"User Fills: {data}")
@@ -97,6 +117,9 @@ async def orderbook_websocket():
 
             elif msg_type == "error":
                 print(f"Error: {data}")
+
+            else:
+                print(f"{data}")
 
 
 # Run the example

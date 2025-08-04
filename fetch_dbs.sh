@@ -34,3 +34,6 @@ rsync -avz --include='*.db*' --exclude='*' \
   "$LOCAL_DIR/"
 
 echo "Remote db files copied into $LOCAL_DIR"
+
+./script_merge_forecast_db.py ./forecast.db ./db_backup/forecast.db
+./script_merge_sensor_db.py ./weather.db ./db_backup/weather.db
