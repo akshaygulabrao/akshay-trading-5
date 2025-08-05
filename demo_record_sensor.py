@@ -4,6 +4,7 @@ import time
 import argparse
 from datetime import datetime as dt
 from datetime import timezone
+from loguru import logger
 
 # ------------------------------------------------------------------
 # Parse command line
@@ -51,23 +52,35 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 
 
 def store_latest_reading(station_code="KLAX"):
+    """
+    Fetch the latest two observations for *station_code*,
+    insert them into the DB (ignoring duplicates),
+    and return *all* observations that were fetched
+    (duplicates included).
+    """
     readings = weather_sensor_reading.get_timeseries(station_code)[-2:]
-    records = []
-    for data in readings:
-        record = (
+
+    # Build the rows to be inserted
+    rows = [
+        (
             dt.now(timezone.utc).isoformat(timespec="seconds"),
             station_code,
-            data["date_time"],
-            data["air_temp"],
-            data["relative_humidity"],
-            data["dew_point"],
-            data["wind_speed"],
+            r["date_time"],
+            r["air_temp"],
+            r["relative_humidity"],
+            r["dew_point"],
+            r["wind_speed"],
         )
-        records.append(record)
+        for r in readings
+    ]
 
+    # Insert into the DB (duplicates will be ignored)
     with sqlite3.connect(DB_FILE) as conn:
-        conn.executemany(INSERT_SQL, records)
+        conn.executemany(INSERT_SQL, rows)
         conn.commit()
+
+    # Return the observations exactly as they came from the sensor
+    return readings
 
 
 # ------------------------------------------------------------------
@@ -77,7 +90,8 @@ if __name__ == "__main__":
     while True:
         try:
             for i in ["KNYC", "KMDW", "KAUS", "KMIA", "KDEN", "KPHL", "KLAX"]:
-                store_latest_reading(i)
+                r = store_latest_reading(i)
+                logger.info(r)
         except Exception as e:
             print("ERROR:", e)
         time.sleep(1)
