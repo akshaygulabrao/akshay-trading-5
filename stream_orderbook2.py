@@ -1,9 +1,11 @@
 import asyncio
 import sqlite3
+import aiosqlite
 import time
 import weakref
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
+import datetime as dt
 from typing import Any, Dict, List, Optional, Set
 from concurrent.futures import ThreadPoolExecutor
 import logging.handlers as H, logging, pathlib
@@ -30,27 +32,10 @@ class DataSource(ABC):
         """Process items from this source's queue"""
         pass
 
+    @abstractmethod
     async def insert_to_db(self, message: Dict[str, Any]) -> None:
         """Common database insertion method"""
-
-        def insert():
-            conn = sqlite3.connect(f"{self.name}_data.db")
-            try:
-                conn.execute(
-                    "INSERT INTO messages (source, data, timestamp) VALUES (?, ?, ?)",
-                    (message["source"], message["data"], message["timestamp"]),
-                )
-                conn.commit()
-            except sqlite3.Error as e:
-                logging.info(f"DB insert error for {self.name}: {e}")
-                raise
-            finally:
-                conn.close()
-
-        try:
-            await asyncio.get_event_loop().run_in_executor(self.db_pool, insert)
-        except Exception as e:
-            logging.info(f"Failed to insert {self.name} message: {e}")
+        pass
 
 
 # WebSocket data source
@@ -60,36 +45,175 @@ class WebSocketSource(DataSource):
         self.reconnect_delay = 1
         self.max_reconnect_delay = 60
         self.url = "wss://api.elections.kalshi.com/trade-api/ws/v2"
+        self.DB = pathlib.Path(__file__).with_name("data_orderbook.db")
+
+    async def stop(self) -> None:
+        if hasattr(self, "db"):
+            await self.db.close()
 
     async def start(self) -> None:
-        while not self.app_state.shutdown_event.is_set():
-            try:
-                async with asyncio.timeout(10):
-                    # Simulate receiving messages
-                    await asyncio.sleep(0.1)
-                    message = {
-                        "source": self.name,
-                        "data": "sample",
-                        "timestamp": time.time(),
-                    }
-                    await self.queue.put(message)
-                    self.reconnect_delay = 1  # Reset delay after successful connection
+        await asyncio.sleep(0.5)  # wait a little before first attempt
 
-            except (asyncio.TimeoutError, ConnectionError) as e:
-                logging.info(f"WebSocket error: {e}, reconnecting...")
-                await asyncio.sleep(min(self.reconnect_delay, self.max_reconnect_delay))
-                self.reconnect_delay *= 2  # Exponential backoff
-                continue
+        # --- load private key once at start-up ---
+        import os, base64, time, json, requests, websockets
+        from cryptography.hazmat.primitives import serialization, hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+
+        KEY_ID = os.getenv("PROD_KEYID")
+        PRIVATE_KEY_PATH = os.getenv("PROD_KEYFILE")
+
+        with open(PRIVATE_KEY_PATH, "rb") as f:
+            private_key = serialization.load_pem_private_key(f.read(), password=None)
+
+        def sign_pss_text(text: str) -> str:
+            message = text.encode("utf-8")
+            signature = private_key.sign(
+                message,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.DIGEST_LENGTH,
+                ),
+                hashes.SHA256(),
+            )
+            return base64.b64encode(signature).decode("utf-8")
+
+        def make_headers(method: str, path: str) -> dict:
+            ts = str(int(time.time() * 1000))
+            sig = sign_pss_text(ts + method + path.split("?")[0])
+            return {
+                "KALSHI-ACCESS-KEY": KEY_ID,
+                "KALSHI-ACCESS-SIGNATURE": sig,
+                "KALSHI-ACCESS-TIMESTAMP": ts,
+            }
+
+        self.db = await aiosqlite.connect("data_orderbook.db")
+        await self.db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS orderbook_events (
+                ts_micro        TEXT,
+                exch_ts_micro   TEXT,
+                seq_num         BIGINT,
+                ticker          TEXT,
+                side            SMALLINT,
+                price           BIGINT,
+                signed_qty      BIGINT,
+                is_delta        BOOLEAN
+            );
+        """
+        )
+        await self.db.commit()
+        # --- reconnect loop ---
+        while not self.app_state.shutdown_event.is_set():
+            r = requests.get(
+                "https://api.elections.kalshi.com/trade-api/v2/markets",
+                params={"series_ticker": "KXHIGHNY", "status": "open"},
+            )
+
+            tickers = [m["ticker"] for m in r.json()["markets"]]
+            logging.info(f"fetched {len(tickers)=}")
+            headers = make_headers("GET", "/trade-api/ws/v2")
+            try:
+                async with websockets.connect(
+                    self.url, additional_headers=headers
+                ) as ws:
+                    self.reconnect_delay = 1  # reset backoff
+                    await ws.send(
+                        json.dumps(
+                            {
+                                "id": 1,
+                                "cmd": "subscribe",
+                                "params": {
+                                    "channels": ["orderbook_delta"],
+                                    "market_tickers": tickers,
+                                },
+                            }
+                        )
+                    )
+                    await ws.send(
+                        json.dumps(
+                            {
+                                "id": 2,
+                                "cmd": "subscribe",
+                                "params": {"channels": ["market_lifecycle_v2"]},
+                            }
+                        )
+                    )
+                    await ws.send(
+                        json.dumps(
+                            {
+                                "id": 3,
+                                "cmd": "subscribe",
+                                "params": {"channels": ["market_positions"]},
+                            }
+                        )
+                    )
+
+                    async for raw in ws:
+                        await self.queue.put(
+                            {
+                                "source": self.name,
+                                "data": json.loads(raw),
+                                "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(
+                                    timespec="microseconds"
+                                ),
+                            }
+                        )
+
+            except Exception as e:
+                logging.info(
+                    f"WebSocket error: {e}, reconnecting in {self.reconnect_delay}s"
+                )
+                await asyncio.sleep(self.reconnect_delay)
+                self.reconnect_delay = min(
+                    self.reconnect_delay * 2, self.max_reconnect_delay
+                )
 
     async def process_queue(self) -> None:
         while not self.app_state.shutdown_event.is_set():
-            message = await self.queue.get()
+            msg = await self.queue.get()
+            await self.app_state.broadcast_queue.put(msg.copy())
+            await self.insert_to_db(msg)
 
-            # Broadcast the message
-            await self.app_state.broadcast_queue.put(message.copy())
+    async def insert_to_db(self, message: dict) -> None:
+        data = message["data"]
+        payload = data.get("msg", {})
+        ts_local = message["timestamp"]
 
-            # Insert into database
-            await self.insert_to_db(message)
+        ts_exch = payload.get("ts", "")
+        seq = data.get("seq", 0)
+        # ---- snapshots ----
+        if data["type"] == "orderbook_snapshot":
+            ticker = payload["market_ticker"]
+            for side_key, levels in (
+                ("yes", payload.get("yes", [])),
+                ("no", payload.get("no", [])),
+            ):
+                side = 1 if side_key == "yes" else -1
+                for price_ticks, qty in levels:
+                    await self.db.execute(
+                        "INSERT INTO orderbook_events VALUES (?,?,?,?,?,?,?,?)",
+                        (ts_local, ts_exch, seq, ticker, side, price_ticks, qty, False),
+                    )
+
+        # ---- deltas ----
+        elif data["type"] == "orderbook_delta":
+            ticker = payload["market_ticker"]
+            side_delta = 1 if payload["side"] == "yes" else -1
+            await self.db.execute(
+                "INSERT INTO orderbook_events VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    ts_local,
+                    ts_exch,
+                    seq,
+                    ticker,
+                    side_delta,
+                    payload["price"],
+                    payload["delta"],
+                    True,
+                ),
+            )
+
+        await self.db.commit()
 
 
 # Fast polling data source (1 second interval)
@@ -189,8 +313,8 @@ class AppState:
         """Initialize all data sources"""
         self.sources = [
             WebSocketSource(self),
-            FastPollSource(self),
-            SlowPollSource(self),
+            # FastPollSource(self),
+            # SlowPollSource(self),
         ]
 
 
@@ -289,8 +413,9 @@ async def graceful_shutdown(app_state: AppState):
     except asyncio.TimeoutError:
         logging.warning("Warning: Timed out waiting for queues to drain")
 
-    # Close resources
     for source in app_state.sources:
+        if hasattr(source, "stop"):
+            await source.stop()
         source.db_pool.shutdown()
 
     logging.info("Shutdown complete")
@@ -312,7 +437,7 @@ if __name__ == "__main__":
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)  # <- console only sees INFO+
     console_handler.setFormatter(
-        logging.Formatter("%(levelname)s:%(name)s:%(message)s")
+        logging.Formatter("%(levelname)s:%(name)s:[line:%(lineno)d] %(message)s")
     )
 
     logging.basicConfig(

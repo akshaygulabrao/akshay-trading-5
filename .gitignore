@@ -24,3 +24,5 @@ ex.py
 .DS_STORE
 weather.db
 forecast.db
+data_orderbook.db
+logs
