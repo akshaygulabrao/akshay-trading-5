@@ -1,248 +1,330 @@
-# relay.py
-"""
-High-level asyncio relay.
-    - Three data sources (websocket, 1 s HTTP poller, 1 h HTTP poller)
-    - Every message is broadcast to all connected websocket listeners
-    - Each message is also INSERT-ed into its own SQLite DB
-"""
-
 import asyncio
-import json
 import sqlite3
 import time
-from collections.abc import Awaitable
+import weakref
+from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
-from typing import Any
-from weakref import WeakSet
-
-import websockets
-from websockets.server import WebSocketServerProtocol
-
-# ---------- configuration -------------------------------------------------
-
-HTTP_POLL_URL_1S = "https://httpbin.org/uuid"  # returns {"uuid": "…"}
-HTTP_POLL_URL_1H = "https://httpbin.org/uuid"  # identical for demo
-WS_SOURCE_URL = "wss://echo.websocket.org/"  # public echo service
-WS_LISTEN_HOST, WS_LISTEN_PORT = "localhost", 8765
-
-DB_NAMES = ["one.db", "two.db", "three.db"]
-QUEUE_MAX = 10_000
-
-# ---------- global objects -------------------------------------------------
-
-broadcast_q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=QUEUE_MAX)
-source_queues = [asyncio.Queue(maxsize=QUEUE_MAX) for _ in range(3)]
-db_pools = [sqlite3.connect(db, check_same_thread=False) for db in DB_NAMES]
-active_listeners: WeakSet[WebSocketServerProtocol] = WeakSet()
-
-# ---------- helper utilities ---------------------------------------------
-
-
-async def sleep_until_next_hour() -> None:
-    """Sleep until the top of the next wall-clock hour."""
-    now = datetime.utcnow()
-    next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-    await asyncio.sleep((next_hour - now).total_seconds())
-
-
+from typing import Any, Dict, List, Optional, Set
+from concurrent.futures import ThreadPoolExecutor
+import logging.handlers as H, logging, pathlib
 import logging
-
-LOG_LEVEL = logging.INFO  # or DEBUG / WARNING / ERROR / CRITICAL
-LOG_FORMAT = "[%(asctime)s] %(levelname)s %(name)s - %(message)s"
-logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT, datefmt="%Y-%m-%dT%H:%M:%S")
-logger = logging.getLogger("relay")
+import pathlib
+import sys
 
 
-def log(msg: str) -> None:
-    logger.info(msg)
+# Base class for all data sources
+class DataSource(ABC):
+    def __init__(self, name: str, app_state: "AppState"):
+        self.name = name
+        self.app_state = app_state
+        self.queue = asyncio.Queue(maxsize=10_000)
+        self.db_pool = ThreadPoolExecutor(max_workers=4)
 
+    @abstractmethod
+    async def start(self) -> None:
+        """Start collecting data from this source"""
+        pass
 
-# ---------- SQLite helpers ------------------------------------------------
+    @abstractmethod
+    async def process_queue(self) -> None:
+        """Process items from this source's queue"""
+        pass
 
+    async def insert_to_db(self, message: Dict[str, Any]) -> None:
+        """Common database insertion method"""
 
-def create_tables() -> None:
-    for db in db_pools:
-        with db:
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY, ts REAL, payload TEXT)"
-            )
-
-
-async def insert_with_retry(pool: sqlite3.Connection, payload: str) -> None:
-    backoff = 0.1
-    while True:
-        try:
-            await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: pool.execute(
-                    "INSERT INTO messages (ts, payload) VALUES (?, ?)",
-                    (time.time(), payload),
-                ),
-            )
-            pool.commit()
-            return
-        except sqlite3.OperationalError:  # busy / locked
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 5)
-
-
-# ---------- data-source coroutines ----------------------------------------
-
-
-async def ws_source(queue: asyncio.Queue[dict[str, Any]]) -> None:
-    backoff = 1
-    while True:
-        try:
-            async with websockets.connect(WS_SOURCE_URL) as ws:
-                log("WS source connected")
-                backoff = 1
-                await ws.send(json.dumps({"subscribe": "demo"}))  # keeps echo busy
-                async for msg in ws:
-                    await queue.put({"source": 0, "data": msg})
-        except Exception as exc:
-            log(f"WS source error: {exc}, reconnecting in {backoff}s")
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 60)
-
-
-async def poll_every_1s(queue: asyncio.Queue[dict[str, Any]]) -> None:
-    session = None
-    while True:
-        try:
-            async with asyncio.timeout(1):
-                if session is None:
-                    reader, writer = await asyncio.open_connection(
-                        "httpbin.org", 443, ssl=True
-                    )
-                    session = (reader, writer)
-                writer = session[1]
-                writer.write(
-                    b"GET /uuid HTTP/1.1\r\nHost: httpbin.org\r\nUser-Agent: relay\r\n\r\n"
+        def insert():
+            conn = sqlite3.connect(f"{self.name}_data.db")
+            try:
+                conn.execute(
+                    "INSERT INTO messages (source, data, timestamp) VALUES (?, ?, ?)",
+                    (message["source"], message["data"], message["timestamp"]),
                 )
-                await writer.drain()
-                line = await reader.readline()
-                while line.strip():
-                    line = await reader.readline()
-                payload = (await reader.readline()).decode()
-                data = json.loads(payload)
-                await queue.put({"source": 1, "data": data})
-        except Exception as exc:
-            log(f"1s poller error: {exc}")
-            if session:
-                session[1].close()
-                session = None
-            await asyncio.sleep(1)
+                conn.commit()
+            except sqlite3.Error as e:
+                logging.info(f"DB insert error for {self.name}: {e}")
+                raise
+            finally:
+                conn.close()
 
-
-async def poll_every_1h(queue: asyncio.Queue[dict[str, Any]]) -> None:
-    await sleep_until_next_hour()
-    while True:
         try:
-            reader, writer = await asyncio.open_connection("httpbin.org", 443, ssl=True)
-            writer.write(
-                b"GET /uuid HTTP/1.1\r\nHost: httpbin.org\r\nUser-Agent: relay\r\n\r\n"
+            await asyncio.get_event_loop().run_in_executor(self.db_pool, insert)
+        except Exception as e:
+            logging.info(f"Failed to insert {self.name} message: {e}")
+
+
+# WebSocket data source
+class WebSocketSource(DataSource):
+    def __init__(self, app_state: "AppState"):
+        super().__init__("ws", app_state)
+        self.reconnect_delay = 1
+        self.max_reconnect_delay = 60
+        self.url = "wss://api.elections.kalshi.com/trade-api/ws/v2"
+
+    async def start(self) -> None:
+        while not self.app_state.shutdown_event.is_set():
+            try:
+                async with asyncio.timeout(10):
+                    # Simulate receiving messages
+                    await asyncio.sleep(0.1)
+                    message = {
+                        "source": self.name,
+                        "data": "sample",
+                        "timestamp": time.time(),
+                    }
+                    await self.queue.put(message)
+                    self.reconnect_delay = 1  # Reset delay after successful connection
+
+            except (asyncio.TimeoutError, ConnectionError) as e:
+                logging.info(f"WebSocket error: {e}, reconnecting...")
+                await asyncio.sleep(min(self.reconnect_delay, self.max_reconnect_delay))
+                self.reconnect_delay *= 2  # Exponential backoff
+                continue
+
+    async def process_queue(self) -> None:
+        while not self.app_state.shutdown_event.is_set():
+            message = await self.queue.get()
+
+            # Broadcast the message
+            await self.app_state.broadcast_queue.put(message.copy())
+
+            # Insert into database
+            await self.insert_to_db(message)
+
+
+# Fast polling data source (1 second interval)
+class FastPollSource(DataSource):
+    def __init__(self, app_state: "AppState"):
+        super().__init__("fast_poll", app_state)
+        self.poll_interval = 1.0
+
+    async def start(self) -> None:
+        while not self.app_state.shutdown_event.is_set():
+            start_time = time.monotonic()
+
+            try:
+                async with asyncio.timeout(0.9):
+                    await asyncio.sleep(0.05)  # Simulate network request
+                    message = {
+                        "source": self.name,
+                        "data": "sample",
+                        "timestamp": time.time(),
+                    }
+                    await self.queue.put(message)
+
+            except Exception as e:
+                logging.error(f"Fast poll error: {e}")
+
+            # Ensure consistent polling interval
+            elapsed = time.monotonic() - start_time
+            await asyncio.sleep(max(0, self.poll_interval - elapsed))
+
+    async def process_queue(self) -> None:
+        while not self.app_state.shutdown_event.is_set():
+            message = await self.queue.get()
+
+            # Broadcast the message
+            await self.app_state.broadcast_queue.put(message.copy())
+
+            # Insert into database
+            await self.insert_to_db(message)
+
+
+# Slow polling data source (1 hour interval)
+class SlowPollSource(DataSource):
+    def __init__(self, app_state: "AppState"):
+        super().__init__("slow_poll", app_state)
+
+    async def start(self) -> None:
+        while not self.app_state.shutdown_event.is_set():
+            # Align to top of the hour
+            now = datetime.now()
+            next_hour = (now + timedelta(hours=1)).replace(
+                minute=0, second=0, microsecond=0
             )
-            await writer.drain()
-            line = await reader.readline()
-            while line.strip():
-                line = await reader.readline()
-            payload = (await reader.readline()).decode()
-            data = json.loads(payload)
-            await queue.put({"source": 2, "data": data})
-            writer.close()
-            await writer.wait_closed()
-        except Exception as exc:
-            log(f"1h poller error: {exc}")
-        await sleep_until_next_hour()
+            delay = (next_hour - now).total_seconds()
+            await asyncio.sleep(delay)
+
+            try:
+                async with asyncio.timeout(3590):  # Give ourselves 10s buffer
+                    await asyncio.sleep(5)  # Simulate network request
+                    message = {
+                        "source": self.name,
+                        "data": "sample",
+                        "timestamp": time.time(),
+                    }
+                    await self.queue.put(message)
+
+            except Exception as e:
+                logging.error(f"Slow poll error: {e}")
+
+    async def process_queue(self) -> None:
+        while not self.app_state.shutdown_event.is_set():
+            message = await self.queue.get()
+
+            # Broadcast the message
+            await self.app_state.broadcast_queue.put(message.copy())
+
+            # Insert into database
+            await self.insert_to_db(message)
 
 
-# ---------- per-queue processor -------------------------------------------
+# Global application state
+class AppState:
+    def __init__(self):
+        # Data sources will be initialized here
+        self.sources: List[DataSource] = []
+
+        # Broadcast queue
+        self.broadcast_queue = asyncio.Queue(maxsize=10_000)
+
+        # WebSocket listeners
+        self.listeners: Set[Any] = weakref.WeakSet()
+
+        # Task management
+        self.tasks: List[asyncio.Task] = []
+        self.shutdown_event = asyncio.Event()
+
+    def initialize_sources(self):
+        """Initialize all data sources"""
+        self.sources = [
+            WebSocketSource(self),
+            FastPollSource(self),
+            SlowPollSource(self),
+        ]
 
 
-async def processor(idx: int, in_q: asyncio.Queue[dict[str, Any]]) -> None:
-    db = db_pools[idx]
-    while True:
-        msg = await in_q.get()
-        try:
-            log(msg.copy())
-            await broadcast_q.put(msg.copy())
-            await insert_with_retry(db, json.dumps(msg))
-        except Exception as exc:
-            log(f"processor {idx} failed to insert: {exc}")
+# Outbound broadcaster
+async def broadcast_messages(app_state: AppState):
+    while not app_state.shutdown_event.is_set():
+        message = await app_state.broadcast_queue.get()
+
+        # Send to all active listeners
+        tasks = []
+        for ws in list(app_state.listeners):
+            try:
+                # In a real implementation, this would be ws.send_json(message)
+                task = asyncio.create_task(ws.send(str(message)))
+                tasks.append(task)
+            except ConnectionError:
+                app_state.listeners.discard(ws)
+
+        if tasks:
+            await asyncio.wait(tasks)
 
 
-# ---------- broadcaster ---------------------------------------------------
+# Listener websocket server
+async def handle_websocket(reader, writer, app_state: AppState):
+    # In a real implementation, this would be a proper WebSocket connection
+    ws = type("FakeWS", (), {"send": lambda self, msg: None})()
+    app_state.listeners.add(ws)
 
-
-async def broadcaster() -> None:
-    while True:
-        msg = await broadcast_q.get()
-        if not active_listeners:
-            continue
-        # fan-out to every connected listener concurrently
-        coros: list[Awaitable[None]] = []
-        for ws in list(active_listeners):
-            coros.append(asyncio.create_task(ws.send(json.dumps(msg))))
-        # wait for all sends; remove dead sockets
-        results = await asyncio.gather(*coros, return_exceptions=True)
-        for ws, res in zip(list(active_listeners), results):
-            if isinstance(res, Exception):
-                active_listeners.discard(ws)
-
-
-# ---------- websocket listener server -------------------------------------
-
-
-async def listener_handler(ws: WebSocketServerProtocol) -> None:
-    active_listeners.add(ws)
-    log(f"listener connected ({len(active_listeners)} total)")
     try:
-        await ws.wait_closed()
+        while not app_state.shutdown_event.is_set():
+            # Keep connection alive
+            await asyncio.sleep(1)
     finally:
-        active_listeners.discard(ws)
-        log(f"listener disconnected ({len(active_listeners)} total)")
+        app_state.listeners.discard(ws)
 
 
-async def listener_server() -> None:
-    async with websockets.serve(listener_handler, WS_LISTEN_HOST, WS_LISTEN_PORT):
-        log(f"listening on ws://{WS_LISTEN_HOST}:{WS_LISTEN_PORT}")
-        await asyncio.Future()  # run forever
+async def start_websocket_server(app_state: AppState):
+    server = await asyncio.start_server(
+        lambda r, w: handle_websocket(r, w, app_state), "0.0.0.0", 8888
+    )
+    async with server:
+        await server.serve_forever()
 
 
-# ---------- graceful shutdown ---------------------------------------------
+async def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    app_state = AppState()
+    app_state.initialize_sources()
+
+    # Create all tasks for data sources
+    for source in app_state.sources:
+        app_state.tasks.extend(
+            [
+                asyncio.create_task(source.start()),
+                asyncio.create_task(source.process_queue()),
+            ]
+        )
+
+    # Add broadcast and websocket tasks
+    app_state.tasks.extend(
+        [
+            asyncio.create_task(broadcast_messages(app_state)),
+            asyncio.create_task(start_websocket_server(app_state)),
+        ]
+    )
+
+    # Wait for shutdown signal
+    await app_state.shutdown_event.wait()
 
 
-class TerminateTaskGroup(Exception):
-    """Exception raised to terminate a task group."""
+# Shutdown sequence
+async def graceful_shutdown(app_state: AppState):
+    logging.info("Starting graceful shutdown...")
+    app_state.shutdown_event.set()
 
+    # Cancel all tasks
+    for task in app_state.tasks:
+        task.cancel()
 
-async def force_terminate_task_group() -> None:
-    raise TerminateTaskGroup()
+    # Wait for tasks to complete (they'll raise CancelledError)
+    await asyncio.gather(*app_state.tasks, return_exceptions=True)
 
+    # Wait for queues to drain
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(
+                *[source.queue.join() for source in app_state.sources],
+                app_state.broadcast_queue.join(),
+            ),
+            timeout=10,
+        )
+    except asyncio.TimeoutError:
+        logging.warning("Warning: Timed out waiting for queues to drain")
 
-async def graceful_shutdown(tg: asyncio.TaskGroup) -> None:
-    log("shutting down…")
-    # add the terminator task to the *same* TaskGroup
-    tg.create_task(force_terminate_task_group())
+    # Close resources
+    for source in app_state.sources:
+        source.db_pool.shutdown()
 
-
-# ---------- main ----------------------------------------------------------
-
-
-async def main() -> None:
-    create_tables()
-    async with asyncio.TaskGroup() as tg:
-        tg.create_task(ws_source(source_queues[0]))
-        tg.create_task(poll_every_1s(source_queues[1]))
-        tg.create_task(poll_every_1h(source_queues[2]))
-        for i in range(3):
-            tg.create_task(processor(i, source_queues[i]))
-        tg.create_task(broadcaster())
-        tg.create_task(listener_server())
+    logging.info("Shutdown complete")
 
 
 if __name__ == "__main__":
+    p = pathlib.Path("logs")
+    p.mkdir(exist_ok=True)
+
+    # Root logger – everything goes to the rotating file at DEBUG
+    file_handler = H.RotatingFileHandler(
+        p / "app.log", maxBytes=1_000_000, backupCount=3
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)  # <- console only sees INFO+
+    console_handler.setFormatter(
+        logging.Formatter("%(levelname)s:%(name)s:%(message)s")
+    )
+
+    logging.basicConfig(
+        level=logging.DEBUG, handlers=[file_handler, console_handler]  # root level
+    )
+    app_state = AppState()
+    app_state.initialize_sources()
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        pass
+        asyncio.run(graceful_shutdown(app_state))
+    except Exception as e:
+        logging.error(f"Fatal error: {e}")
+        asyncio.run(graceful_shutdown(app_state))

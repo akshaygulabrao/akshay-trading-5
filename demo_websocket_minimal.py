@@ -5,18 +5,21 @@ import time
 import websockets
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
+import requests
 
 import os
-import utils
 
 # Configuration
 KEY_ID = os.getenv("PROD_KEYID")
 PRIVATE_KEY_PATH = os.getenv("PROD_KEYFILE")
-sites = utils.all_sites()
-mkts_dict = utils.get_markets_for_sites(sites)
-all_markets = [m.name for market_list in mkts_dict.values() for m in market_list]
-MARKET_TICKER = all_markets
+
 WS_URL = "wss://api.elections.kalshi.com/trade-api/ws/v2"
+
+response = requests.get(
+    "https://api.elections.kalshi.com/trade-api/v2/markets",
+    {"series_ticker": "KXHIGHNY", "status": "open"},
+)
+MARKET_TICKER = [i["ticker"] for i in response.json()["markets"]]
 
 
 def sign_pss_text(private_key, text: str) -> str:
@@ -96,12 +99,10 @@ async def orderbook_websocket():
                 print(f"Subscribed: {data}")
 
             elif msg_type == "orderbook_snapshot":
-                # print(f"Orderbook snapshot: {data}")
-                a = None
+                print(f"Orderbook snapshot: {data}")
 
             elif msg_type == "orderbook_delta":
-                # print(f"Orderbook update: {data}")
-                a = None
+                print(f"Orderbook update: {data}")
 
             elif msg_type == "fill":
                 print(f"User Fills: {data}")
