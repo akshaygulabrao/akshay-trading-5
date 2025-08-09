@@ -12,6 +12,11 @@ import logging.handlers as H, logging, pathlib
 import logging
 import pathlib
 import sys
+from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+
+from orderbook_update import OrderBook
 
 
 # Base class for all data sources
@@ -44,8 +49,10 @@ class WebSocketSource(DataSource):
         super().__init__("ws", app_state)
         self.reconnect_delay = 1
         self.max_reconnect_delay = 60
+        self.order_books: dict[str, OrderBook] = {}
         self.url = "wss://api.elections.kalshi.com/trade-api/ws/v2"
         self.DB = pathlib.Path(__file__).with_name("data_orderbook.db")
+        self.order_books: dict[str, OrderBook] = {}
 
     async def stop(self) -> None:
         if hasattr(self, "db"):
@@ -171,7 +178,8 @@ class WebSocketSource(DataSource):
     async def process_queue(self) -> None:
         while not self.app_state.shutdown_event.is_set():
             msg = await self.queue.get()
-            await self.app_state.broadcast_queue.put(msg.copy())
+            logging.info(msg)
+            await self.app_state.broadcast_queue.put(msg)
             await self.insert_to_db(msg)
 
     async def insert_to_db(self, message: dict) -> None:
@@ -184,6 +192,8 @@ class WebSocketSource(DataSource):
         # ---- snapshots ----
         if data["type"] == "orderbook_snapshot":
             ticker = payload["market_ticker"]
+            self.order_books[ticker] = OrderBook()
+            self.order_books[ticker].process_snapshot(payload)
             for side_key, levels in (
                 ("yes", payload.get("yes", [])),
                 ("no", payload.get("no", [])),
@@ -198,6 +208,7 @@ class WebSocketSource(DataSource):
         # ---- deltas ----
         elif data["type"] == "orderbook_delta":
             ticker = payload["market_ticker"]
+            self.order_books[ticker].process_delta(payload)
             side_delta = 1 if payload["side"] == "yes" else -1
             await self.db.execute(
                 "INSERT INTO orderbook_events VALUES (?,?,?,?,?,?,?,?)",
@@ -303,11 +314,35 @@ class AppState:
         self.broadcast_queue = asyncio.Queue(maxsize=10_000)
 
         # WebSocket listeners
-        self.listeners: Set[Any] = weakref.WeakSet()
+        self.clients: set[WebSocket] = set()
 
         # Task management
         self.tasks: List[asyncio.Task] = []
         self.shutdown_event = asyncio.Event()
+
+        self.fast_app = FastAPI()
+
+        # CORS
+        self.fast_app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+        # WebSocket endpoint
+        @self.fast_app.websocket("/ws")
+        async def websocket_endpoint(websocket: WebSocket):
+            await websocket.accept()
+            self.clients.add(websocket)
+            try:
+                while True:
+                    await websocket.receive_text()  # keep-alive
+            except Exception:
+                pass
+            finally:
+                self.clients.discard(websocket)
 
     def initialize_sources(self):
         """Initialize all data sources"""
@@ -317,46 +352,47 @@ class AppState:
             # SlowPollSource(self),
         ]
 
-
-# Outbound broadcaster
-async def broadcast_messages(app_state: AppState):
-    while not app_state.shutdown_event.is_set():
-        message = await app_state.broadcast_queue.get()
-
-        # Send to all active listeners
-        tasks = []
-        for ws in list(app_state.listeners):
+    async def broadcast_message(self):
+        """
+        Endless coroutine:
+          - waits for the next message on broadcast_queue
+          - pushes it to every currently-connected WebSocket client
+          - removes disconnected clients automatically
+        """
+        while not self.shutdown_event.is_set():
             try:
-                # In a real implementation, this would be ws.send_json(message)
-                task = asyncio.create_task(ws.send(str(message)))
-                tasks.append(task)
-            except ConnectionError:
-                app_state.listeners.discard(ws)
+                # pop with a small timeout so we can check shutdown_event periodically
+                msg = await asyncio.wait_for(self.broadcast_queue.get(), timeout=0.2)
+            except asyncio.TimeoutError:
+                continue  # just loop back and check shutdown_event
 
-        if tasks:
-            await asyncio.wait(tasks)
+            # Fast-fail if no one is listening
+            if not self.clients:
+                continue
 
+            # Try to send to every client; remove dead ones
+            disconnected = set()
+            for ws in self.clients:
+                try:
+                    await ws.send_json(msg)
+                except Exception:
+                    # Any send failure → mark for removal
+                    disconnected.add(ws)
 
-# Listener websocket server
-async def handle_websocket(reader, writer, app_state: AppState):
-    # In a real implementation, this would be a proper WebSocket connection
-    ws = type("FakeWS", (), {"send": lambda self, msg: None})()
-    app_state.listeners.add(ws)
-
-    try:
-        while not app_state.shutdown_event.is_set():
-            # Keep connection alive
-            await asyncio.sleep(1)
-    finally:
-        app_state.listeners.discard(ws)
+            if disconnected:
+                self.clients -= disconnected
 
 
 async def start_websocket_server(app_state: AppState):
-    server = await asyncio.start_server(
-        lambda r, w: handle_websocket(r, w, app_state), "0.0.0.0", 8888
+    config = uvicorn.Config(
+        app=app_state.fast_app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="info",
     )
-    async with server:
-        await server.serve_forever()
+    server = uvicorn.Server(config)
+    logging.info("Starting Uvicorn server on http://0.0.0.0:8000")
+    await server.serve()
 
 
 async def main():
@@ -368,28 +404,23 @@ async def main():
     app_state = AppState()
     app_state.initialize_sources()
 
-    # Create all tasks for data sources
-    for source in app_state.sources:
-        app_state.tasks.extend(
-            [
-                asyncio.create_task(source.start()),
-                asyncio.create_task(source.process_queue()),
-            ]
-        )
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for src in app_state.sources:
+                tg.create_task(src.start())
+                tg.create_task(src.process_queue())
 
-    # Add broadcast and websocket tasks
-    app_state.tasks.extend(
-        [
-            asyncio.create_task(broadcast_messages(app_state)),
-            asyncio.create_task(start_websocket_server(app_state)),
-        ]
-    )
+            tg.create_task(start_websocket_server(app_state))
+            tg.create_task(app_state.broadcast_message())
 
-    # Wait for shutdown signal
-    await app_state.shutdown_event.wait()
+            await app_state.shutdown_event.wait()
+
+    except* Exception as eg:
+        logging.exception("Fatal error in TaskGroup – starting graceful shutdown ...")
+    finally:
+        await graceful_shutdown(app_state)
 
 
-# Shutdown sequence
 async def graceful_shutdown(app_state: AppState):
     logging.info("Starting graceful shutdown...")
     app_state.shutdown_event.set()
@@ -408,7 +439,7 @@ async def graceful_shutdown(app_state: AppState):
                 *[source.queue.join() for source in app_state.sources],
                 app_state.broadcast_queue.join(),
             ),
-            timeout=10,
+            timeout=0.25,
         )
     except asyncio.TimeoutError:
         logging.warning("Warning: Timed out waiting for queues to drain")
@@ -429,7 +460,7 @@ if __name__ == "__main__":
     file_handler = H.RotatingFileHandler(
         p / "app.log", maxBytes=1_000_000, backupCount=3
     )
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     )
