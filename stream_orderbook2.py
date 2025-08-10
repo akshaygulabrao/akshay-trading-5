@@ -17,6 +17,7 @@ import aiohttp
 import datetime
 
 from orderbook_update import OrderBook
+from weather_extract_forecast import extract_forecast
 
 
 # Base class for all data sources
@@ -46,7 +47,7 @@ class WebSocketSource(DataSource):
         self.max_reconnect_delay = 60
         self.order_books: dict[str, OrderBook] = {}
         self.url = "wss://api.elections.kalshi.com/trade-api/ws/v2"
-        self.DB = pathlib.Path(__file__).with_name("data_orderbook.db")
+        self.db_file = "data/data_orderbook.db"
         self.order_books: dict[str, OrderBook] = {}
 
     async def stop(self) -> None:
@@ -88,7 +89,7 @@ class WebSocketSource(DataSource):
                 "KALSHI-ACCESS-TIMESTAMP": ts,
             }
 
-        self.db = await aiosqlite.connect("data_orderbook.db")
+        self.db = await aiosqlite.connect(self.db_file)
         await self.db.execute(
             """
             CREATE TABLE IF NOT EXISTS orderbook_events (
@@ -104,7 +105,6 @@ class WebSocketSource(DataSource):
         """
         )
         await self.db.commit()
-        # --- reconnect loop ---
         while not self.app_state.shutdown_event.is_set():
             tickers = []
             for i in ["NY", "CHI", "MIA", "AUS", "DEN", "PHIL", "LAX"]:
@@ -267,7 +267,7 @@ class FastPollSource(DataSource):
     def __init__(self, app_state: "AppState"):
         super().__init__("fast_poll", app_state)
         self.poll_interval = 1.0
-        self.db_file = "weather2.db"
+        self.db_file = "data/weather2.db"
 
     async def start(self):
         self.db = await aiosqlite.connect(self.db_file)
@@ -371,11 +371,10 @@ class FastPollSource(DataSource):
         """
         while not self.app_state.shutdown_event.is_set():
             message = await self.queue.get()
-            logging.info(message)
+            logging.info("rcvd sensor data")
             async with aiosqlite.connect(self.db_file) as conn:
                 await conn.executemany(INSERT_SQL, message)
                 await conn.commit()
-            # Broadcast the message
             await self.app_state.broadcast_queue.put(message)
 
     async def stop(self) -> None:
@@ -387,39 +386,66 @@ class FastPollSource(DataSource):
 class SlowPollSource(DataSource):
     def __init__(self, app_state: "AppState"):
         super().__init__("slow_poll", app_state)
+        self.db_file = "data/forecast2.db"
+
+    async def fetch_and_enqueue(self, station: str) -> None:
+        try:
+            msg = await extract_forecast(station)
+            await self.queue.put(msg)
+        except Exception as exc:
+            logging.exception("failed for %s: %s", station, exc)
 
     async def start(self) -> None:
+        self.db = await aiosqlite.connect(self.db_file)
+        await self.db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS forecast (
+                inserted_at      TEXT NOT NULL,
+                idx              INT,
+                station          TEXT NOT NULL,
+                observation_time TEXT NOT NULL,
+                air_temp         REAL,
+                relative_humidity REAL,
+                dew_point        REAL,
+                wind_speed       REAL,
+                PRIMARY KEY (idx, station, observation_time)
+            );
+            """
+        )
+        await self.db.commit()
+
         while not self.app_state.shutdown_event.is_set():
             # Align to top of the hour
-            now = datetime.datetime.now()
-            next_hour = (now + datetime.timedelta(hours=1)).replace(
-                minute=0, second=0, microsecond=0
-            )
-            delay = (next_hour - now).total_seconds()
-            await asyncio.sleep(delay)
-
-            try:
-                async with asyncio.timeout(3590):  # Give ourselves 10s buffer
-                    await asyncio.sleep(5)  # Simulate network request
-                    message = {
-                        "source": self.name,
-                        "data": "sample",
-                        "timestamp": time.time(),
-                    }
-                    await self.queue.put(message)
-
-            except Exception as e:
-                logging.error(f"Slow poll error: {e}")
+            # now = datetime.datetime.now()
+            # next_hour = (now + datetime.timedelta(hours=1)).replace(
+            #     minute=0, second=0, microsecond=0
+            # )
+            # delay = (next_hour - now).total_seconds()
+            # await asyncio.sleep(delay)
+            await asyncio.sleep(5)
+            logging.info("fetching forecasts")
+            for s in ["KNYC", "KMDW", "KMIA", "KAUS", "KDEN", "KPHL", "KLAX"]:
+                asyncio.create_task(self.fetch_and_enqueue(s))
 
     async def process_queue(self) -> None:
+        INSERT_SQL = """
+        INSERT OR IGNORE INTO forecast
+        (inserted_at, idx, station, observation_time,
+        air_temp, relative_humidity, dew_point, wind_speed)
+        VALUES
+        (:inserted_at, :idx, :station, :observation_time,
+        :air_temp, :relative_humidity, :dew_point, :wind_speed)
+        """
         while not self.app_state.shutdown_event.is_set():
             message = await self.queue.get()
+            async with aiosqlite.connect(self.db_file) as conn:
+                await conn.executemany(INSERT_SQL, message)
+                await conn.commit()
+            await self.app_state.broadcast_queue.put(message)
 
-            # Broadcast the message
-            await self.app_state.broadcast_queue.put(message.copy())
-
-            # Insert into database
-            await self.insert_to_db(message)
+    async def stop(self) -> None:
+        if hasattr(self, "db"):
+            await self.db.close()
 
 
 # Global application state
@@ -467,7 +493,7 @@ class AppState:
         self.sources = [
             WebSocketSource(self),
             FastPollSource(self),
-            # SlowPollSource(self),
+            SlowPollSource(self),
         ]
 
     async def broadcast_message(self):

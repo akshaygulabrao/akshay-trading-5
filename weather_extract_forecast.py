@@ -5,6 +5,8 @@ from bs4 import BeautifulSoup
 from collections import defaultdict
 from weather_info import nws_site2forecast
 import httpx
+import datetime as dt
+import pytz
 
 
 async def extract_forecast(nws_site):
@@ -30,13 +32,53 @@ async def extract_forecast(nws_site):
         if row_data and row_data[0]:
             forecast_dict[row_data[0]].extend(row_data[1:])
 
+    tz_map = {
+        "KNYC": "US/Eastern",
+        "KMDW": "US/Central",
+        "KAUS": "US/Central",
+        "KMIA": "US/Eastern",
+        "KDEN": "US/Mountain",
+        "KPHL": "US/Eastern",
+        "KLAX": "US/Pacific",
+    }
+    tz = pytz.timezone(tz_map[nws_site])
     df = pd.DataFrame.from_dict(forecast_dict)
     df["Date"] = df["Date"].replace("", np.nan).ffill()
     df["Date"] = df["Date"].apply(lambda x: x + "/2025")
     df["Date"] = pd.to_datetime(df["Date"], format="%m/%d/%Y")
     df.iloc[:, 1] = df.iloc[:, 1].astype(int)
     df["Date"] = df["Date"] + pd.to_timedelta(df.iloc[:, 1], unit="h")
-    return df.set_index("Date")
+    df["Date"] = df["Date"].dt.tz_localize(tz).dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+    # Add the station column
+    df.insert(0, "idx", range(len(df)))
+    df.insert(0, "station", nws_site)
+    df.insert(
+        0,
+        "inserted_at",
+        dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds"),
+    )
+    rename_map = {
+        "station": "station",
+        "Date": "observation_time",
+        "Temperature (°F)": "air_temp",
+        "Relative Humidity (%)": "relative_humidity",
+        "Dewpoint (°F)": "dew_point",
+        "Surface Wind (mph)": "wind_speed",
+    }
+    df = df.rename(columns=rename_map)
+    return df[
+        [
+            "inserted_at",
+            "idx",
+            "station",
+            "observation_time",
+            "air_temp",
+            "dew_point",
+            "wind_speed",
+            "relative_humidity",
+        ]
+    ].to_dict(orient="records")
 
 
 async def forecast_day(nws_site):
@@ -62,7 +104,7 @@ async def test_extract_forecast():
             print(f"❌ Error for {site}: {result}")
         else:
             print(f"✅ Forecast for {site}:")
-            print(result.head())
+            print(result)
 
 
 async def test_forecast_day():
@@ -78,7 +120,7 @@ async def test_forecast_day():
 
 async def main():
     """Runs all tests concurrently."""
-    await asyncio.gather(test_extract_forecast(), test_forecast_day())
+    await asyncio.gather(test_extract_forecast())
 
 
 if __name__ == "__main__":
