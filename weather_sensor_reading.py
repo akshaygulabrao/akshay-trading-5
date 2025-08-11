@@ -75,18 +75,30 @@ def _timing_demo(stid: str = "KNYC", runs: int = 10) -> None:
 
 
 def parse_station_rows(payload: dict) -> list[dict]:
-    station = payload["STATION"][0]  # there’s only one station
+    station = payload["STATION"][0]
     obs = station["OBSERVATIONS"]
 
     rows = []
-    for idx, dt in enumerate(obs["date_time"]):
+    for idx, dt in enumerate(obs.get("date_time", [])):
         rows.append(
             {
                 "date_time": dt,
-                "air_temp": obs["air_temp_set_1"][idx],
-                "relative_humidity": obs["relative_humidity_set_1"][idx],
-                "dew_point": obs["dew_point_temperature_set_1d"][idx],
-                "wind_speed": obs["wind_speed_set_1"][idx],
+                "air_temp": obs.get("air_temp_set_1", [None] * (idx + 1))[idx]
+                if "air_temp_set_1" in obs
+                else None,
+                "relative_humidity": obs.get(
+                    "relative_humidity_set_1", [None] * (idx + 1)
+                )[idx]
+                if "relative_humidity_set_1" in obs
+                else None,
+                "dew_point": obs.get(
+                    "dew_point_temperature_set_1d", [None] * (idx + 1)
+                )[idx]
+                if "dew_point_temperature_set_1d" in obs
+                else None,
+                "wind_speed": obs.get("wind_speed_set_1", [None] * (idx + 1))[idx]
+                if "wind_speed_set_1" in obs
+                else None,
             }
         )
     return rows

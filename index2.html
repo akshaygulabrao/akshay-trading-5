@@ -112,6 +112,7 @@ ws.onmessage = (evt) => {
     if (!dateCell) {
       dateCell = document.createElement('td');
       dateCell.dataset.date = date;
+      dateCell.dataset.site = siteKey;
 
       const allCells = [...siteRow.cells];
       let insertBefore = null;
