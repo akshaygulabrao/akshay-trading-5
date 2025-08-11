@@ -1,30 +1,48 @@
-# Kalshi Orderbook Logger
+# Kalshi Trading
 
-Dumps websocket messages in python.
+## Data Schemas
 
-examples/demo_markets.py
-- examples to use
+### Forecast
+```sql
+CREATE TABLE IF NOT EXISTS forecast (
+    inserted_at      TEXT NOT NULL,
+    idx              INT,
+    station          TEXT NOT NULL,
+    observation_time TEXT NOT NULL,
+    air_temp         REAL,
+    relative_humidity REAL,
+    dew_point        REAL,
+    wind_speed       REAL,
+    PRIMARY KEY (idx, station, observation_time)
+);
+```
 
-trading/kalshi_ref.py
-- starter code that kalshi gives you
+### Sensors
+```sql
+CREATE TABLE IF NOT EXISTS weather (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    inserted_at        TEXT NOT NULL,
+    station            TEXT NOT NULL,
+    observation_time   TEXT,
+    air_temp           REAL,
+    relative_humidity  REAL,
+    dew_point          REAL,
+    wind_speed         REAL,
+    UNIQUE(station, observation_time)
+);
+```
 
-trading/order_placer.py
-- stale code that used to work, needs updating
+### Orderbook
 
-trading/orderbook.py
-- This script tracks and periodically logs WebSocket orderbook data for multiple market tickers, with graceful shutdown handling.
-
-trading/utils.py
-- utility functions for easily fetching exchange data for weather-betting tickers
-
-trading/weather_extract_forecast.py
-- fetches NWS forecasts given site
-
-trading/weather_info.py
-- helper info for weather_extract_forecast
-
-trading/weather_sensor_reading.py
-- fetches latest sensor readings
-
-trading/orderbook_update.py
-- parses orderbook messages to orderbook Data structure
+```sql
+CREATE TABLE IF NOT EXISTS orderbook_events (
+    ts_micro        TEXT,
+    exch_ts_micro   TEXT,
+    seq_num         BIGINT,
+    ticker          TEXT,
+    side            SMALLINT,
+    price           BIGINT,
+    signed_qty      BIGINT,
+    is_delta        BOOLEAN
+);
+```
