@@ -13,9 +13,9 @@ import pytz
 import requests
 from bs4 import BeautifulSoup
 
-# ------------------------------------------------------------------
-# 0.  Station → NWS URL map
-# ------------------------------------------------------------------
+from weather_extract_forecast import extract_forecast
+
+
 NWS_SITE2FORECAST = {
     "KNYC": "https://forecast.weather.gov/MapClick.php?lat=40.78&lon=-73.97&lg=english&&FcstType=digital",
     "KMDW": "https://forecast.weather.gov/MapClick.php?lat=41.78&lon=-87.76&lg=english&&FcstType=digital",
@@ -27,9 +27,6 @@ NWS_SITE2FORECAST = {
 }
 
 
-# ------------------------------------------------------------------
-# 1.  Forecast extractor (unchanged logic)
-# ------------------------------------------------------------------
 def extract_forecast(nws_site: str) -> pd.DataFrame:
     url = NWS_SITE2FORECAST[nws_site]
     resp = requests.get(url, timeout=30)

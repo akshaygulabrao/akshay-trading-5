@@ -198,7 +198,8 @@ class WebSocketSource(DataSource):
                 if top_no_price is not None
                 else "N/A",
             }
-            await self.app_state.broadcast_queue.put(mkt)
+            orderbook_msg = {"type": "orderbook", "data": mkt}
+            await self.app_state.broadcast_queue.put(orderbook_msg)
         except Exception as e:
             logging.error(f"Error logging orderbook for {market_ticker}: {e}")
 
@@ -353,6 +354,7 @@ class FastPollSource(DataSource):
                         st["OBSERVATIONS"]["wind_speed_set_1"],
                     )
                 ]
+
                 await self.queue.put(all_obs)
 
             except Exception as e:
@@ -375,7 +377,8 @@ class FastPollSource(DataSource):
             async with aiosqlite.connect(self.db_file) as conn:
                 await conn.executemany(INSERT_SQL, message)
                 await conn.commit()
-            await self.app_state.broadcast_queue.put(message)
+            sensor_msg = {"type": "sensor", "data": message}
+            await self.app_state.broadcast_queue.put(sensor_msg)
 
     async def stop(self) -> None:
         if hasattr(self, "db"):
@@ -441,7 +444,8 @@ class SlowPollSource(DataSource):
             async with aiosqlite.connect(self.db_file) as conn:
                 await conn.executemany(INSERT_SQL, message)
                 await conn.commit()
-            await self.app_state.broadcast_queue.put(message)
+            forecast_msg = {"type": "forecast", "data": message}
+            await self.app_state.broadcast_queue.put(forecast_msg)
 
     async def stop(self) -> None:
         if hasattr(self, "db"):
