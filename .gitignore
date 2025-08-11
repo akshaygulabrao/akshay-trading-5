@@ -26,3 +26,5 @@ weather.db
 forecast.db
 data_orderbook.db
 logs
+*db
+data/*db
