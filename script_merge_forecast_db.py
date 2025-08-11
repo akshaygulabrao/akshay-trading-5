@@ -16,17 +16,17 @@ CREATE TABLE IF NOT EXISTS forecast (
 """
 
 
-def merge(db1_path: str, db2_path: str) -> None:
+def merge(master_path: str, src_path: str) -> None:
     # Connect to both DBs
-    db1 = sqlite3.connect(db1_path)
-    db2 = sqlite3.connect(db2_path)
+    db1 = sqlite3.connect(master_path)
+    db2 = sqlite3.connect(src_path)
 
     # Ensure table exists in both (idempotent)
     db1.executescript(DDL)
     db2.executescript(DDL)
 
     # Attach db2 to db1 under alias 'src'
-    db1.execute(f"ATTACH DATABASE ? AS src", (db2_path,))
+    db1.execute(f"ATTACH DATABASE ? AS src", (src_path,))
 
     # Insert rows from src.forecast into db1.forecast, ignoring duplicates
     db1.execute(
@@ -44,6 +44,6 @@ def merge(db1_path: str, db2_path: str) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: python merge_forecasts.py arg1.db arg2.db")
+        print("Usage: python merge_forecasts.py master.db src.db")
         sys.exit(1)
     merge(sys.argv[1], sys.argv[2])
