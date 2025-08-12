@@ -143,7 +143,8 @@ class ForecastPoll:
                 async with aiosqlite.connect(self.db_file) as conn:
                     await conn.executemany(INSERT_ROW_SQL, result)
                     await conn.commit()
-                await self.q.put(result)
+                packet = {"type": self.__class__.__name__, "payload": result}
+                await self.q.put(packet)
             end = time.perf_counter()
             logging.info("Producer took %.0f us", (end - start) * 1e6)
 

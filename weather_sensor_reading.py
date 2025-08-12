@@ -107,7 +107,7 @@ async def get_timeseries_async(
     return all_obs
 
 
-class LiveSensor:
+class SensorPoll:
     def __init__(self, queue: asyncio.Queue):
         self.q = queue
 
@@ -122,8 +122,8 @@ class LiveSensor:
             except (ClientError, asyncio.TimeoutError, ValueError) as exc:
                 logging.exception("Error fetching timeseries %s", exc)
                 continue  # do not push bad/None data to the queue
-
-            await self.q.put(payload)
+            packet = {"type": self.__class__.__name__, "payload": payload}
+            await self.q.put(packet)
             end = time.perf_counter()
             logging.info("Producer took %.0f us", (end - start) * 1e6)
 
@@ -135,7 +135,7 @@ async def consumer(queue: asyncio.Queue):
 
 async def main():
     queue = asyncio.Queue(maxsize=10_000)
-    producers = [LiveSensor(queue)]
+    producers = [SensorPoll(queue)]
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
     consumer_task = asyncio.create_task(consumer(queue))
 
