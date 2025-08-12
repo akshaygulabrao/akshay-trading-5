@@ -107,9 +107,8 @@ async def get_timeseries_async(
     return all_obs
 
 
-class Producer:
-    def __init__(self, pid: int, queue: asyncio.Queue):
-        self.pid = pid
+class LiveSensor:
+    def __init__(self, queue: asyncio.Queue):
         self.q = queue
 
     async def run(self):
@@ -136,7 +135,7 @@ async def consumer(queue: asyncio.Queue):
 
 async def main():
     queue = asyncio.Queue(maxsize=10_000)
-    producers = [Producer(0, queue)]
+    producers = [LiveSensor(0, queue)]
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
     consumer_task = asyncio.create_task(consumer(queue))
 
