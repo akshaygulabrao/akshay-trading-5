@@ -146,7 +146,9 @@ class ForecastPoll:
                 packet = {"type": self.__class__.__name__, "payload": result}
                 await self.q.put(packet)
             end = time.perf_counter()
-            logging.info("Producer took %.0f us", (end - start) * 1e6)
+            logging.info(
+                "%s took %.0f us", self.__class__.__name__, (end - start) * 1e6
+            )
 
 
 async def consumer(queue: asyncio.Queue):

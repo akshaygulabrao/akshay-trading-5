@@ -108,8 +108,9 @@ async def get_timeseries_async(
 
 
 class SensorPoll:
-    def __init__(self, queue: asyncio.Queue):
+    def __init__(self, queue: asyncio.Queue, db_file: str):
         self.q = queue
+        self.db_file = db_file
 
     async def run(self):
         while True:
@@ -117,7 +118,7 @@ class SensorPoll:
             start = time.perf_counter()
             try:
                 payload = await get_timeseries_async(
-                    CREATE_TABLE_SQL, INSERT_ROW_SQL, "weather.db"
+                    CREATE_TABLE_SQL, INSERT_ROW_SQL, self.db_file
                 )
             except (ClientError, asyncio.TimeoutError, ValueError) as exc:
                 logging.exception("Error fetching timeseries %s", exc)
@@ -125,7 +126,9 @@ class SensorPoll:
             packet = {"type": self.__class__.__name__, "payload": payload}
             await self.q.put(packet)
             end = time.perf_counter()
-            logging.info("Producer took %.0f us", (end - start) * 1e6)
+            logging.info(
+                "%s took %.0f us", self.__class__.__name__, (end - start) * 1e6
+            )
 
 
 async def consumer(queue: asyncio.Queue):
@@ -135,7 +138,7 @@ async def consumer(queue: asyncio.Queue):
 
 async def main():
     queue = asyncio.Queue(maxsize=10_000)
-    producers = [SensorPoll(queue)]
+    producers = [SensorPoll(queue, "weather.db")]
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
     consumer_task = asyncio.create_task(consumer(queue))
 
