@@ -501,32 +501,19 @@ class AppState:
         ]
 
     async def broadcast_message(self):
-        """
-        Endless coroutine:
-          - waits for the next message on broadcast_queue
-          - pushes it to every currently-connected WebSocket client
-          - removes disconnected clients automatically
-        """
         while not self.shutdown_event.is_set():
             try:
-                # pop with a small timeout so we can check shutdown_event periodically
                 msg = await asyncio.wait_for(self.broadcast_queue.get(), timeout=0.2)
             except asyncio.TimeoutError:
-                continue  # just loop back and check shutdown_event
-
-            # Fast-fail if no one is listening
+                continue
             if not self.clients:
                 continue
-
-            # Try to send to every client; remove dead ones
             disconnected = set()
             for ws in self.clients:
                 try:
                     await ws.send_json(msg)
                 except Exception:
-                    # Any send failure → mark for removal
                     disconnected.add(ws)
-
             if disconnected:
                 self.clients -= disconnected
 
@@ -620,8 +607,8 @@ if __name__ == "__main__":
     )
 
     logging.basicConfig(
-        level=logging.DEBUG, handlers=[file_handler, console_handler]  # root level
-    )
+        level=logging.DEBUG, handlers=[file_handler, console_handler]
+    )  # root level
     app_state = AppState()
     app_state.initialize_sources()
 

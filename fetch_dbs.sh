@@ -36,14 +36,10 @@ rsync -avz --include='*.db*' --exclude='*' \
 echo "Remote db files copied into $LOCAL_DIR"
 
 sqlite3 forecast.db "SELECT COUNT() from forecast;"
-chmod 777 forecast.db
 ./script_add_forecast_idx.py ./db_backup/forecast.db
 ./script_merge_forecast_db.py ./forecast.db ./db_backup/forecast.db
-chmod 777 forecast_backup.db
-cp forecast.db forecast_backup.db
 sqlite3 forecast.db "SELECT COUNT() from forecast;"
 
-chmod 777 weather.db
-chmod 777 weather_backup.db
+sqlite3 weather.db "SELECT COUNT() from weather;"
 ./script_merge_sensor_db.py ./weather.db ./db_backup/weather.db
-cp weather.db weather_backup.db
+sqlite3 weather.db "SELECT COUNT() from weather;"
