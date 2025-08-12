@@ -1,12 +1,63 @@
 import asyncio
-import numpy as np
+import aiohttp
+import aiosqlite
+from aiohttp import ClientError, ClientTimeout
+import logging
+
+import time
+
 import pandas as pd
+import numpy as np
 from bs4 import BeautifulSoup
 from collections import defaultdict
-from weather_info import nws_site2forecast
+
 import httpx
 import datetime as dt
 import pytz
+import sys
+
+
+CREATE_TABLE_SQL = """
+            CREATE TABLE IF NOT EXISTS forecast (
+                inserted_at      TEXT NOT NULL,
+                idx              INT,
+                station          TEXT NOT NULL,
+                observation_time TEXT NOT NULL,
+                air_temp         REAL,
+                relative_humidity REAL,
+                dew_point        REAL,
+                wind_speed       REAL,
+                PRIMARY KEY (idx, station, observation_time)
+            );
+            """
+
+INSERT_ROW_SQL = """
+        INSERT OR IGNORE INTO forecast
+        (inserted_at, idx, station, observation_time,
+        air_temp, relative_humidity, dew_point, wind_speed)
+        VALUES
+        (:inserted_at, :idx, :station, :observation_time,
+        :air_temp, :relative_humidity, :dew_point, :wind_speed)
+        """
+
+tz_map = {
+    "KNYC": "US/Eastern",
+    "KMDW": "US/Central",
+    "KAUS": "US/Central",
+    "KMIA": "US/Eastern",
+    "KDEN": "US/Mountain",
+    "KPHL": "US/Eastern",
+    "KLAX": "US/Pacific",
+}
+nws_site2forecast = {
+    "KNYC": "https://forecast.weather.gov/MapClick.php?lat=40.78&lon=-73.97&lg=english&&FcstType=digital",
+    "KMDW": "https://forecast.weather.gov/MapClick.php?lat=41.78&lon=-87.76&lg=english&&FcstType=digital",
+    "KAUS": "https://forecast.weather.gov/MapClick.php?lat=30.18&lon=-97.68&lg=english&&FcstType=digital",
+    "KMIA": "https://forecast.weather.gov/MapClick.php?lat=25.7554&lon=-80.2262&lg=english&&FcstType=digital",
+    "KDEN": "https://forecast.weather.gov/MapClick.php?lat=39.85&lon=-104.66&lg=english&&FcstType=digital",
+    "KPHL": "https://forecast.weather.gov/MapClick.php?lat=40.08&lon=-75.01&lg=english&&FcstType=digital",
+    "KLAX": "https://forecast.weather.gov/MapClick.php?lat=33.96&lon=-118.42&lg=english&&FcstType=digital",
+}
 
 
 async def extract_forecast(nws_site):
@@ -32,15 +83,6 @@ async def extract_forecast(nws_site):
         if row_data and row_data[0]:
             forecast_dict[row_data[0]].extend(row_data[1:])
 
-    tz_map = {
-        "KNYC": "US/Eastern",
-        "KMDW": "US/Central",
-        "KAUS": "US/Central",
-        "KMIA": "US/Eastern",
-        "KDEN": "US/Mountain",
-        "KPHL": "US/Eastern",
-        "KLAX": "US/Pacific",
-    }
     tz = pytz.timezone(tz_map[nws_site])
     df = pd.DataFrame.from_dict(forecast_dict)
     df["Date"] = df["Date"].replace("", np.nan).ffill()
@@ -67,7 +109,7 @@ async def extract_forecast(nws_site):
         "Surface Wind (mph)": "wind_speed",
     }
     df = df.rename(columns=rename_map)
-    return df[
+    rows = df[
         [
             "inserted_at",
             "idx",
@@ -80,48 +122,50 @@ async def extract_forecast(nws_site):
         ]
     ].to_dict(orient="records")
 
-
-async def forecast_day(nws_site):
-    """Extracts max temp and time for a given site."""
-    df = await extract_forecast(nws_site)
-    hr = df.resample("D")[[df.columns[1]]].idxmax().values
-    tmp = df.resample("D")[[df.columns[1]]].max().astype(float).values
-    res = []
-    for i in range(len(hr)):
-        dt = hr[i][0].astype("datetime64[s]").item()
-        formatted_date = dt.strftime("%y%b%d").upper()
-        hour = dt.hour
-        res.append((formatted_date, hour, float(tmp[i][0])))
-    return res, df.iloc[0, 1]
+    return rows
 
 
-async def test_extract_forecast():
-    """Tests forecast extraction for all sites CONCURRENTLY."""
-    tasks = [extract_forecast(site) for site in nws_site2forecast.keys()]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    for site, result in zip(nws_site2forecast.keys(), results):
-        if isinstance(result, Exception):
-            print(f"❌ Error for {site}: {result}")
-        else:
-            print(f"✅ Forecast for {site}:")
-            print(result)
+class ForecastPoll:
+    def __init__(self, queue: asyncio.Queue, db_file: str):
+        self.q = queue
+        self.db_file = db_file
+
+    async def run(self):
+        async with aiosqlite.connect(self.db_file) as conn:
+            await conn.execute(CREATE_TABLE_SQL)
+            await conn.commit()
+        while True:
+            await asyncio.sleep(5)
+            start = time.perf_counter()
+            coros = [extract_forecast(i) for i in nws_site2forecast.keys()]
+            for coro in asyncio.as_completed(coros):
+                result = await coro
+                async with aiosqlite.connect(self.db_file) as conn:
+                    await conn.executemany(INSERT_ROW_SQL, result)
+                    await conn.commit()
+                await self.q.put(result)
+            end = time.perf_counter()
+            logging.info("Producer took %.0f us", (end - start) * 1e6)
 
 
-async def test_forecast_day():
-    """Tests daily forecast for all sites CONCURRENTLY."""
-    tasks = [forecast_day(site) for site in nws_site2forecast.keys()]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    for site, result in zip(nws_site2forecast.keys(), results):
-        if isinstance(result, Exception):
-            print(f"❌ Error for {site}: {result}")
-        else:
-            print(f"✅ Daily forecast for {site}: {result}")
+async def consumer(queue: asyncio.Queue):
+    while True:
+        item = await queue.get()
 
 
 async def main():
-    """Runs all tests concurrently."""
-    await asyncio.gather(test_extract_forecast())
+    queue = asyncio.Queue(maxsize=10_000)
+    producers = [ForecastPoll(queue, "forecast.db")]
+    producer_tasks = [asyncio.create_task(p.run()) for p in producers]
+    consumer_task = asyncio.create_task(consumer(queue))
+
+    await asyncio.gather(*producer_tasks)
+    await queue.join()
+    await consumer_task
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(message)s", stream=sys.stdout
+    )
     asyncio.run(main())

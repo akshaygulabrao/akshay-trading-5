@@ -135,7 +135,7 @@ async def consumer(queue: asyncio.Queue):
 
 async def main():
     queue = asyncio.Queue(maxsize=10_000)
-    producers = [LiveSensor(0, queue)]
+    producers = [LiveSensor(queue)]
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
     consumer_task = asyncio.create_task(consumer(queue))
 
