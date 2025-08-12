@@ -1,10 +1,17 @@
 import os
 import time
+from venv import create
 import requests
 from typing import Dict, Any
+import logging
+import sys
+import datetime
 
 import asyncio
 import aiohttp
+import aiosqlite
+from aiohttp import ClientError, ClientTimeout
+
 
 API_URL = "https://api.synopticdata.com/v2/stations/timeseries"
 TOKEN = os.getenv("SYNOPTIC_TOKEN", "7c76618b66c74aee913bdbae4b448bdd")
@@ -12,7 +19,7 @@ TOKEN = os.getenv("SYNOPTIC_TOKEN", "7c76618b66c74aee913bdbae4b448bdd")
 DEFAULT_PARAMS = {
     "showemptystations": 1,
     "units": "temp|F,speed|mph,english",
-    "recent": 100,
+    "recent": 10800,
     "complete": 1,
     "obtimezone": "local",
     "token": TOKEN,
@@ -36,89 +43,110 @@ HEADERS = {
         "Chrome/138.0.0.0 Safari/537.36"
     ),
 }
+INSERT_ROW_SQL = """
+    INSERT OR IGNORE INTO weather
+    (inserted_at, station, observation_time,
+    air_temp, relative_humidity, dew_point, wind_speed)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+"""
+CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS weather (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    inserted_at        TEXT NOT NULL,
+    station            TEXT NOT NULL,
+    observation_time   TEXT,
+    air_temp           REAL,
+    relative_humidity  REAL,
+    dew_point          REAL,
+    wind_speed         REAL,
+    UNIQUE(station, observation_time)
+);
+"""
 
 
-def get_timeseries(stid: str, **extra) -> Dict[str, Any]:
-    """
-    Return the decoded JSON response for a given station ID.
-    Any extra keyword arguments override the default query parameters.
-    """
-    params = {**DEFAULT_PARAMS, "STID": stid, **extra}
-    resp = requests.get(API_URL, params=params, headers=HEADERS, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
-    return parse_station_rows(data)
+async def get_timeseries_async(
+    create_table_sql, insert_row_sql, db_file
+) -> Dict[str, Any]:
+    params = {**DEFAULT_PARAMS, "STID": "KNYC,KMDW,KMIA,KAUS,KDEN,KPHL,KLAX"}
+    async with aiosqlite.connect(db_file) as conn:
+        await conn.execute(create_table_sql)
+        await conn.commit()
 
-
-async def get_timeseries_async(stid: str, **extra) -> Dict[str, Any]:
-    """
-    Async version of get_timeseries().
-    Any extra keyword arguments override the default query parameters.
-    """
-    params = {**DEFAULT_PARAMS, "STID": stid, **extra}
     async with aiohttp.ClientSession() as session:
         async with session.get(
             API_URL, params=params, headers=HEADERS, timeout=15
         ) as resp:
             resp.raise_for_status()
             data = await resp.json()
-            return parse_station_rows(data)
+            all_obs = [
+                (
+                    datetime.datetime.now(datetime.timezone.utc).isoformat(
+                        timespec="microseconds"
+                    ),
+                    st["STID"],
+                    dt,
+                    t,
+                    rh,
+                    dp,
+                    ws,
+                )
+                for st in data["STATION"]
+                for dt, t, rh, dp, ws in zip(
+                    st["OBSERVATIONS"]["date_time"],
+                    st["OBSERVATIONS"]["air_temp_set_1"],
+                    st["OBSERVATIONS"]["relative_humidity_set_1"],
+                    st["OBSERVATIONS"]["dew_point_temperature_set_1d"],
+                    st["OBSERVATIONS"]["wind_speed_set_1"],
+                )
+            ]
+
+    async with aiosqlite.connect(db_file) as conn:
+        await conn.executemany(insert_row_sql, all_obs)
+        await conn.commit()
+
+    return all_obs
 
 
-def _timing_demo(stid: str = "KNYC", runs: int = 10) -> None:
-    """Run a small timing benchmark."""
-    for i in range(1, runs + 1):
-        t0 = time.perf_counter()
-        _ = get_timeseries(stid)
-        t1 = time.perf_counter()
-        print(f"Request #{i} took {t1 - t0:.2f} s")
+class Producer:
+    def __init__(self, pid: int, queue: asyncio.Queue):
+        self.pid = pid
+        self.q = queue
+
+    async def run(self):
+        while True:
+            await asyncio.sleep(1)
+            start = time.perf_counter()
+            try:
+                payload = await get_timeseries_async(
+                    CREATE_TABLE_SQL, INSERT_ROW_SQL, "weather.db"
+                )
+            except (ClientError, asyncio.TimeoutError, ValueError) as exc:
+                logging.exception("Error fetching timeseries %s", exc)
+                continue  # do not push bad/None data to the queue
+
+            await self.q.put(payload)
+            end = time.perf_counter()
+            logging.info("Producer took %.0f us", (end - start) * 1e6)
 
 
-def parse_station_rows(payload: dict) -> list[dict]:
-    station = payload["STATION"][0]
-    obs = station["OBSERVATIONS"]
+async def consumer(queue: asyncio.Queue):
+    while True:
+        item = await queue.get()
 
-    rows = []
-    for idx, dt in enumerate(obs.get("date_time", [])):
-        rows.append(
-            {
-                "date_time": dt,
-                "air_temp": obs.get("air_temp_set_1", [None] * (idx + 1))[idx]
-                if "air_temp_set_1" in obs
-                else None,
-                "relative_humidity": obs.get(
-                    "relative_humidity_set_1", [None] * (idx + 1)
-                )[idx]
-                if "relative_humidity_set_1" in obs
-                else None,
-                "dew_point": obs.get(
-                    "dew_point_temperature_set_1d", [None] * (idx + 1)
-                )[idx]
-                if "dew_point_temperature_set_1d" in obs
-                else None,
-                "wind_speed": obs.get("wind_speed_set_1", [None] * (idx + 1))[idx]
-                if "wind_speed_set_1" in obs
-                else None,
-            }
-        )
-    return rows
+
+async def main():
+    queue = asyncio.Queue(maxsize=10_000)
+    producers = [Producer(0, queue)]
+    producer_tasks = [asyncio.create_task(p.run()) for p in producers]
+    consumer_task = asyncio.create_task(consumer(queue))
+
+    await asyncio.gather(*producer_tasks)
+    await queue.join()
+    await consumer_task
 
 
 if __name__ == "__main__":
-    import sys
-    import asyncio
-
-    # Allow:  python synoptic.py KSLC 5
-    stid = sys.argv[1] if len(sys.argv) > 1 else "KNYC"
-    runs = int(sys.argv[2]) if len(sys.argv) > 2 else 10
-    _timing_demo(stid, runs)
-
-    # --- one-run async demo ---
-    async def _async_demo(stid: str) -> None:
-        t0 = time.perf_counter()
-        payload = await get_timeseries_async(stid)
-        t1 = time.perf_counter()
-        print(f"Async request took {t1 - t0:.2f} s")
-
-    print("\n--- Async demo ---")
-    asyncio.run(_async_demo(stid))
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(message)s", stream=sys.stdout
+    )
+    asyncio.run(main())

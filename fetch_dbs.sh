@@ -41,13 +41,9 @@ chmod 777 forecast.db
 ./script_merge_forecast_db.py ./forecast.db ./db_backup/forecast.db
 chmod 777 forecast_backup.db
 cp forecast.db forecast_backup.db
-chmod 444 forecast.db
-chmod 444 forecast_backup.db
 sqlite3 forecast.db "SELECT COUNT() from forecast;"
 
 chmod 777 weather.db
 chmod 777 weather_backup.db
 ./script_merge_sensor_db.py ./weather.db ./db_backup/weather.db
 cp weather.db weather_backup.db
-chmod 444 weather.db
-chmod 444 weather_backup.db
