@@ -92,7 +92,7 @@ ws.onmessage = (evt) => {
   const msg = JSON.parse(evt.data);
 
   /* ----  NEW: type check  ---- */
-  if (msg.type === 'orderbook') {
+  if (msg.type === "orderbook") {
     const { ticker, yes, no } = msg.data;
     const { site, date, strike } = parseTicker(ticker);
     if (!strike) return;
