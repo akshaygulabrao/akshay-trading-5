@@ -1,5 +1,5 @@
 import asyncio,logging,sys,os
-
+from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 import uvicorn
@@ -70,8 +70,9 @@ async def main() -> None:
 
     def _require_envs(*names):
         for n in names:
-            if os.getenv(n) is None:
-                sys.exit(f"Missing env var {n}")
+            p = os.getenv(n)
+            if p is None or not Path(p).exists():
+                sys.exit(f"Missing or invalid env var {n}")
 
     _require_envs("FORECAST_DB_PATH", "WEATHER_DB_PATH", "ORDERBOOK_DB_PATH")
 

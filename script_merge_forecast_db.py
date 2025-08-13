@@ -1,6 +1,6 @@
 #!.venv/bin/python
 import sqlite3
-import sys
+import sys,os,pathlib
 
 DDL = """
     CREATE TABLE IF NOT EXISTS forecast (
@@ -50,7 +50,14 @@ def merge(master_path: str, src_path: str) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python merge_forecasts.py master.db src.db")
-        sys.exit(1)
-    merge(sys.argv[1], sys.argv[2])
+    def _require_envs(*names):
+        for n in names:
+            p = os.getenv(n)
+            if p is None or not pathlib.Path(p).exists():
+                sys.exit(f"Missing or invalid env var {n}")
+
+    _require_envs("FORECAST_DB_PATH")
+
+    source_db = "./db_backup/forecast.db"
+
+    merge(os.getenv("FORECAST_DB_PATH"), source_db)

@@ -1,10 +1,10 @@
 import os
 import time
 from venv import create
-import requests
 from typing import Dict, Any
 import logging
-import sys
+import sys,os
+from pathlib import Path
 import datetime
 
 import asyncio
@@ -137,8 +137,16 @@ async def consumer(queue: asyncio.Queue):
 
 
 async def main():
+
+    def _require_envs(*names):
+        for n in names:
+            p = os.getenv(n)
+            if p is None or not Path(p).exists():
+                sys.exit(f"Missing or invalid env var {n}")
+
+    _require_envs("WEATHER_DB_PATH")
     queue = asyncio.Queue(maxsize=10_000)
-    producers = [SensorPoll(queue, "weather.db")]
+    producers = [SensorPoll(queue, os.getenv("WEATHER_DB_PATH"))]
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
     consumer_task = asyncio.create_task(consumer(queue))
 

@@ -1,5 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
+
+for var in FORECAST_DB_PATH WEATHER_DB_PATH ORDERBOOK_DB_PATH; do
+    [[ -z "${!var:-}" ]] && { echo "Missing env var $var"; exit 1; }
+    [[ ! -f "${!var}" ]] && { echo "File not found: ${!var}"; exit 1; }
+done
 
 # ---------- 1. Environment-variable checks ----------
 required_vars=(EC2_HOST EC2_KEY)
@@ -36,9 +41,9 @@ rsync -avz --include='*.db*' --exclude='*' \
 echo "Remote db files copied into $LOCAL_DIR"
 
 sqlite3 forecast.db "SELECT COUNT() from forecast;"
-./script_merge_forecast_db.py /opt/data/forecast.db ./db_backup/forecast.db
+./script_merge_forecast_db.py $FORECAST_DB_PATH ./db_backup/forecast.db
 sqlite3 forecast.db "SELECT COUNT() from forecast;"
 
 sqlite3 weather.db "SELECT COUNT() from weather;"
-./script_merge_sensor_db.py /opt/data/weather.db ./db_backup/weather.db
+./script_merge_sensor_db.py $WEATHER_DB_PATH ./db_backup/weather.db
 sqlite3 weather.db "SELECT COUNT() from weather;"

@@ -1,8 +1,7 @@
 import asyncio
-import aiohttp
 import aiosqlite
-from aiohttp import ClientError, ClientTimeout
-import logging
+from pathlib import Path
+import logging,os
 
 import time
 
@@ -163,8 +162,18 @@ async def consumer(queue: asyncio.Queue):
 
 
 async def main():
+   
+    def _require_envs(*names):
+        for n in names:
+            p = os.getenv(n)
+            if p is None or not Path(p).exists():
+                sys.exit(f"Missing or invalid env var {n}")
+
+    _require_envs("FORECAST_DB_PATH")
+
+
     queue = asyncio.Queue(maxsize=10_000)
-    producers = [ForecastPoll(queue, "forecast.db")]
+    producers = [ForecastPoll(queue, os.getenv("FORECAST_DB_PATH"))]
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
     consumer_task = asyncio.create_task(consumer(queue))
 
