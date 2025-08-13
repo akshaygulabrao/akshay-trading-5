@@ -64,65 +64,71 @@ async def extract_forecast(nws_site):
     """Fetches forecast data for a given NWS site."""
     url = nws_site2forecast.get(nws_site)
     if not url:
-        raise ValueError(f"No URL found for site: {nws_site}")
+        logging.warning("%s is down", nws_site)
+        return []
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url)
-    if response.status_code != 200:
-        raise ValueError(f"Bad response for {nws_site}: HTTP {response.status_code}")
-
-    soup = BeautifulSoup(response.text, "html.parser")
     try:
-        table = soup.find_all("table")[4]
-    except IndexError:
-        raise ValueError(f"Forecast table not found for {nws_site}")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+        if response.status_code != 200:
+            logging.warning("%s is down", nws_site)
+            return []
 
-    forecast_dict = defaultdict(list)
-    for row in table.find_all("tr"):
-        row_data = [cell.get_text(strip=True) for cell in row.find_all(["td", "th"])]
-        if row_data and row_data[0]:
-            forecast_dict[row_data[0]].extend(row_data[1:])
+        soup = BeautifulSoup(response.text, "html.parser")
+        try:
+            table = soup.find_all("table")[4]
+        except IndexError:
+            logging.warning("%s is down", nws_site)
+            return []
 
-    tz = pytz.timezone(tz_map[nws_site])
-    df = pd.DataFrame.from_dict(forecast_dict)
-    df["Date"] = df["Date"].replace("", np.nan).ffill()
-    df["Date"] = df["Date"].apply(lambda x: x + "/2025")
-    df["Date"] = pd.to_datetime(df["Date"], format="%m/%d/%Y")
-    df.iloc[:, 1] = df.iloc[:, 1].astype(int)
-    df["Date"] = df["Date"] + pd.to_timedelta(df.iloc[:, 1], unit="h")
-    df["Date"] = df["Date"].dt.tz_localize(tz).dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+        forecast_dict = defaultdict(list)
+        for row in table.find_all("tr"):
+            row_data = [cell.get_text(strip=True) for cell in row.find_all(["td", "th"])]
+            if row_data and row_data[0]:
+                forecast_dict[row_data[0]].extend(row_data[1:])
 
-    # Add the station column
-    df.insert(0, "idx", range(len(df)))
-    df.insert(0, "station", nws_site)
-    df.insert(
-        0,
-        "inserted_at",
-        dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds"),
-    )
-    rename_map = {
-        "station": "station",
-        "Date": "observation_time",
-        "Temperature (°F)": "air_temp",
-        "Relative Humidity (%)": "relative_humidity",
-        "Dewpoint (°F)": "dew_point",
-        "Surface Wind (mph)": "wind_speed",
-    }
-    df = df.rename(columns=rename_map)
-    rows = df[
-        [
+        tz = pytz.timezone(tz_map[nws_site])
+        df = pd.DataFrame.from_dict(forecast_dict)
+        df["Date"] = df["Date"].replace("", np.nan).ffill()
+        df["Date"] = df["Date"].apply(lambda x: x + "/2025")
+        df["Date"] = pd.to_datetime(df["Date"], format="%m/%d/%Y")
+        df.iloc[:, 1] = df.iloc[:, 1].astype(int)
+        df["Date"] = df["Date"] + pd.to_timedelta(df.iloc[:, 1], unit="h")
+        df["Date"] = df["Date"].dt.tz_localize(tz).dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+        df.insert(0, "idx", range(len(df)))
+        df.insert(0, "station", nws_site)
+        df.insert(
+            0,
             "inserted_at",
-            "idx",
-            "station",
-            "observation_time",
-            "air_temp",
-            "dew_point",
-            "wind_speed",
-            "relative_humidity",
-        ]
-    ].to_dict(orient="records")
+            dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds"),
+        )
+        rename_map = {
+            "station": "station",
+            "Date": "observation_time",
+            "Temperature (°F)": "air_temp",
+            "Relative Humidity (%)": "relative_humidity",
+            "Dewpoint (°F)": "dew_point",
+            "Surface Wind (mph)": "wind_speed",
+        }
+        df = df.rename(columns=rename_map)
+        rows = df[
+            [
+                "inserted_at",
+                "idx",
+                "station",
+                "observation_time",
+                "air_temp",
+                "dew_point",
+                "wind_speed",
+                "relative_humidity",
+            ]
+        ].to_dict(orient="records")
+        return rows
 
-    return rows
+    except Exception as e:
+        logging.warning("%s is down", nws_site)
+        return []
 
 
 class ForecastPoll:
