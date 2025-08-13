@@ -1,9 +1,12 @@
-# broadcaster.py
-import asyncio
-import logging
-import sys
+import asyncio,logging,sys
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
+import uvicorn
+
+from weather_extract_forecast import ForecastPoll
+from weather_sensor_reading import SensorPoll
+from orderbook import ObWebsocket
 
 class ConnectionManager:
     """
@@ -60,9 +63,7 @@ async def consumer(queue: asyncio.Queue):
 
         await manager.broadcast(message)
 
-from weather_extract_forecast import ForecastPoll
-from weather_sensor_reading import SensorPoll
-from orderbook import ObWebsocket
+
 
 async def main() -> None:
     queue = asyncio.Queue(maxsize=10_000)
@@ -76,7 +77,6 @@ async def main() -> None:
 
     consumer_task = asyncio.create_task(consumer(queue))
 
-    import uvicorn
     server = uvicorn.Server(
         uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
     )
@@ -86,9 +86,14 @@ async def main() -> None:
                          return_exceptions=True)
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(message)s",
-        stream=sys.stdout
-    )
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    for h in root.handlers[:]:
+        root.removeHandler(h)
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    root.addHandler(handler)
+
     asyncio.run(main())

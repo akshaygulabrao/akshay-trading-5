@@ -36,9 +36,9 @@ rsync -avz --include='*.db*' --exclude='*' \
 echo "Remote db files copied into $LOCAL_DIR"
 
 sqlite3 forecast.db "SELECT COUNT() from forecast;"
-./script_merge_forecast_db.py ./forecast.db ./db_backup/forecast.db
+./script_merge_forecast_db.py /opt/data/forecast.db ./db_backup/forecast.db
 sqlite3 forecast.db "SELECT COUNT() from forecast;"
 
 sqlite3 weather.db "SELECT COUNT() from weather;"
-./script_merge_sensor_db.py ./weather.db ./db_backup/weather.db
+./script_merge_sensor_db.py /opt/data/weather.db ./db_backup/weather.db
 sqlite3 weather.db "SELECT COUNT() from weather;"

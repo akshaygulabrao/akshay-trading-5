@@ -86,7 +86,7 @@
     const books= new Map();   // eventKey → <table class=book>
 
     ws.onopen  = () => console.log("📡 connected");
-    ws.onclose = () => console.log("❌ closed");
+    ws.onclose = () => console.log("❌ closed");  
 
 ws.onmessage = (evt) => {
   const msg = JSON.parse(evt.data);

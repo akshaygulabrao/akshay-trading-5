@@ -21,13 +21,12 @@ DEST_DIR=/opt/trading_server
 
 # ---------- 3. File list (edit as needed) ----------
 FILES=(
-  "/Users/ox/workspace/akshay-trading-5/utils.py"
-  "/Users/ox/workspace/akshay-trading-5/stream_orderbook.py"
   "/Users/ox/workspace/akshay-trading-5/kalshi_ref.py"
   "/Users/ox/workspace/akshay-trading-5/pyproject.toml"
   "/Users/ox/workspace/akshay-trading-5/orderbook_update.py"
   "/Users/ox/workspace/akshay-trading-5/weather_sensor_reading.py"
   "/Users/ox/workspace/akshay-trading-5/stream_orderbook2.py"
+  "/Users/ox/workspace/akshay-trading-5/orderbook.py"
     "/Users/ox/workspace/akshay-trading-5/weather_extract_forecast.py"
 )
 
