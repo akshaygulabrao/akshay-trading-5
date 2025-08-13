@@ -3,7 +3,12 @@ import aiosqlite
 import logging
 import datetime
 import logging
+
 from orderbook_update import OrderBook
+
+import os, base64, time, json, requests, websockets
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import padding
 
 CREATE_TABLE_SQL = """
     CREATE TABLE IF NOT EXISTS orderbook_events (
@@ -29,15 +34,53 @@ class ObWebsocket:
         self.url = "wss://api.elections.kalshi.com/trade-api/ws/v2"
         self.db_file = db_file
         self.queue = queue
+        self.tickers = []
+        self.orderbook_delta_id = -1
 
-    # ------------------------------------------------------------------
-    #  single coroutine: connect, subscribe, receive, store & log
-    # ------------------------------------------------------------------
+    async def resubscribe(self, ws):
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": 1,
+                        "cmd": "unsubscribe",
+                        "params": {
+                            "sids": [self.orderbook_delta_id],
+                            "market_tickers": self.tickers,
+                            "action": "remove"
+                        },
+                    }
+                )
+            )
+            await asyncio.get_event_loop().run_in_executor(None,self.active_tickers)
+            await ws.send(
+                json.dumps(
+                    {
+                        "id": 1,
+                        "cmd": "subscribe",
+                        "params": {
+                            "channels": ["orderbook_delta"],
+                            "market_tickers": self.tickers,
+                        },
+                    }
+                )
+            )
+        
+    async def heartbeat(self,ws) -> None:
+        while True:
+            await asyncio.sleep(300)
+            await self.resubscribe(ws)
+    
+    def active_tickers(self):
+        self.tickers = []
+        for city in ["NY", "CHI", "MIA", "AUS", "DEN", "PHIL", "LAX"]:
+            r = requests.get(
+                "https://api.elections.kalshi.com/trade-api/v2/markets",
+                params={"series_ticker": f"KXHIGH{city}", "status": "open"},
+                timeout=2,
+            )
+            self.tickers.extend([m["ticker"] for m in r.json()["markets"]])
+
     async def run(self) -> None:
-        import os, base64, time, json, requests, websockets
-        from cryptography.hazmat.primitives import serialization, hashes
-        from cryptography.hazmat.primitives.asymmetric import padding
-
         KEY_ID = os.getenv("PROD_KEYID")
         PRIV_PATH = os.getenv("PROD_KEYFILE")
 
@@ -64,16 +107,8 @@ class ObWebsocket:
                 "KALSHI-ACCESS-TIMESTAMP": ts,
             }
 
-        # 1. build ticker list once
-        tickers = []
-        for city in ["NY", "CHI", "MIA", "AUS", "DEN", "PHIL", "LAX"]:
-            r = requests.get(
-                "https://api.elections.kalshi.com/trade-api/v2/markets",
-                params={"series_ticker": f"KXHIGH{city}", "status": "open"},
-                timeout=2,
-            )
-            tickers.extend([m["ticker"] for m in r.json()["markets"]])
-        logging.info(f"fetched {len(tickers)=}")
+        await asyncio.get_event_loop().run_in_executor(None, self.active_tickers)
+        logging.info(f"fetched {len(self.tickers)=}")
 
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(CREATE_TABLE_SQL)
@@ -81,7 +116,6 @@ class ObWebsocket:
 
         headers = auth_headers("GET", "/trade-api/ws/v2")
         async with websockets.connect(self.url, additional_headers=headers) as ws:
-            self.reconnect_delay = 1
 
             await ws.send(
                 json.dumps(
@@ -90,7 +124,7 @@ class ObWebsocket:
                         "cmd": "subscribe",
                         "params": {
                             "channels": ["orderbook_delta"],
-                            "market_tickers": tickers,
+                            "market_tickers": self.tickers,
                         },
                     }
                 )
@@ -113,7 +147,7 @@ class ObWebsocket:
                     }
                 )
             )
-
+            asyncio.create_task(self.heartbeat(ws))
             async for raw in ws:
                 start = time.perf_counter()
                 data = json.loads(raw)
@@ -162,8 +196,10 @@ class ObWebsocket:
                         )
 
                         await db.commit()
+                if data["type"] == "subscribed" and msg["channel"] == "orderbook_delta":
+                    self.orderbook_delta_id = msg["sid"]
 
-                if data["type"] in {"orderbook_snapshot", "orderbook_delta"}:
+                elif data["type"] in {"orderbook_snapshot", "orderbook_delta"}:
                     market_ticker = msg["market_ticker"]
                     ob = self.order_books[market_ticker]
                     yes_top = next(iter(ob.markets[market_ticker]["yes"]), None)
@@ -178,10 +214,11 @@ class ObWebsocket:
                         if no_top
                         else "N/A",
                     }
-                    end = time.perf_counter()
                     await self.queue.put({"type": "orderbook", "data": mkt})
-                    logging.info(
-                        "%s took %.0f us",
-                        self.__class__.__name__,
-                        (end - start) * 1e6,
-                    )
+
+                end = time.perf_counter()
+                logging.info(
+                    "%s took %.0f us",
+                    self.__class__.__name__,
+                    (end - start) * 1e6,
+                )
