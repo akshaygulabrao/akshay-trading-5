@@ -64,98 +64,107 @@ async def extract_forecast(nws_site):
     """Fetches forecast data for a given NWS site."""
     url = nws_site2forecast.get(nws_site)
     if not url:
-        logging.warning("%s is down", nws_site)
-        return []
+        raise ValueError(f"No URL found for site: {nws_site}")
 
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+    if response.status_code != 200:
+        raise ValueError(f"Bad response for {nws_site}: HTTP {response.status_code}")
+
+    soup = BeautifulSoup(response.text, "html.parser")
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
-        if response.status_code != 200:
-            logging.warning("%s is down", nws_site)
-            return []
+        table = soup.find_all("table")[4]
+    except IndexError:
+        raise ValueError(f"Forecast table not found for {nws_site}")
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        try:
-            table = soup.find_all("table")[4]
-        except IndexError:
-            logging.warning("%s is down", nws_site)
-            return []
+    forecast_dict = defaultdict(list)
+    for row in table.find_all("tr"):
+        row_data = [cell.get_text(strip=True) for cell in row.find_all(["td", "th"])]
+        if row_data and row_data[0]:
+            forecast_dict[row_data[0]].extend(row_data[1:])
 
-        forecast_dict = defaultdict(list)
-        for row in table.find_all("tr"):
-            row_data = [cell.get_text(strip=True) for cell in row.find_all(["td", "th"])]
-            if row_data and row_data[0]:
-                forecast_dict[row_data[0]].extend(row_data[1:])
+    tz = pytz.timezone(tz_map[nws_site])
+    df = pd.DataFrame.from_dict(forecast_dict)
+    df["Date"] = df["Date"].replace("", np.nan).ffill()
+    df["Date"] = df["Date"].apply(lambda x: x + "/2025")
+    df["Date"] = pd.to_datetime(df["Date"], format="%m/%d/%Y")
+    df.iloc[:, 1] = df.iloc[:, 1].astype(int)
+    df["Date"] = df["Date"] + pd.to_timedelta(df.iloc[:, 1], unit="h")
+    df["Date"] = df["Date"].dt.tz_localize(tz).dt.strftime("%Y-%m-%dT%H:%M:%S%z")
 
-        tz = pytz.timezone(tz_map[nws_site])
-        df = pd.DataFrame.from_dict(forecast_dict)
-        df["Date"] = df["Date"].replace("", np.nan).ffill()
-        df["Date"] = df["Date"].apply(lambda x: x + "/2025")
-        df["Date"] = pd.to_datetime(df["Date"], format="%m/%d/%Y")
-        df.iloc[:, 1] = df.iloc[:, 1].astype(int)
-        df["Date"] = df["Date"] + pd.to_timedelta(df.iloc[:, 1], unit="h")
-        df["Date"] = df["Date"].dt.tz_localize(tz).dt.strftime("%Y-%m-%dT%H:%M:%S%z")
-
-        df.insert(0, "idx", range(len(df)))
-        df.insert(0, "station", nws_site)
-        df.insert(
-            0,
+    # Add the station column
+    df.insert(0, "idx", range(len(df)))
+    df.insert(0, "station", nws_site)
+    df.insert(
+        0,
+        "inserted_at",
+        dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds"),
+    )
+    rename_map = {
+        "station": "station",
+        "Date": "observation_time",
+        "Temperature (°F)": "air_temp",
+        "Relative Humidity (%)": "relative_humidity",
+        "Dewpoint (°F)": "dew_point",
+        "Surface Wind (mph)": "wind_speed",
+    }
+    df = df.rename(columns=rename_map)
+    rows = df[
+        [
             "inserted_at",
-            dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds"),
-        )
-        rename_map = {
-            "station": "station",
-            "Date": "observation_time",
-            "Temperature (°F)": "air_temp",
-            "Relative Humidity (%)": "relative_humidity",
-            "Dewpoint (°F)": "dew_point",
-            "Surface Wind (mph)": "wind_speed",
-        }
-        df = df.rename(columns=rename_map)
-        rows = df[
-            [
-                "inserted_at",
-                "idx",
-                "station",
-                "observation_time",
-                "air_temp",
-                "dew_point",
-                "wind_speed",
-                "relative_humidity",
-            ]
-        ].to_dict(orient="records")
-        return rows
+            "idx",
+            "station",
+            "observation_time",
+            "air_temp",
+            "dew_point",
+            "wind_speed",
+            "relative_humidity",
+        ]
+    ].to_dict(orient="records")
 
-    except Exception as e:
-        logging.warning("%s is down", nws_site)
-        return []
+    return rows
 
 
 class ForecastPoll:
-    def __init__(self, queue: asyncio.Queue, db_file: str):
+    def __init__(self, queue: asyncio.Queue, stop_event: asyncio.Event, db_file: str):
         self.q = queue
+        self.stop_event = stop_event
         self.db_file = db_file
 
     async def run(self):
-        async with aiosqlite.connect(self.db_file) as conn:
-            await conn.execute(CREATE_TABLE_SQL)
-            await conn.commit()
-        while True:
-            await asyncio.sleep(5)
-            start = time.perf_counter()
-            coros = [extract_forecast(i) for i in nws_site2forecast.keys()]
-            for coro in asyncio.as_completed(coros):
-                result = await coro
-                async with aiosqlite.connect(self.db_file) as conn:
-                    await conn.executemany(INSERT_ROW_SQL, result)
-                    await conn.commit()
-                packet = {"type": self.__class__.__name__, "payload": result}
-                await self.q.put(packet)
-            end = time.perf_counter()
-            logging.info(
-                "%s took %.0f us", self.__class__.__name__, (end - start) * 1e6
-            )
+        try:
+            async with aiosqlite.connect(self.db_file) as conn:
+                await conn.execute(CREATE_TABLE_SQL)
+                await conn.commit()
+            while not self.stop_event.is_set():
+                await asyncio.sleep(5)
+                start = time.perf_counter()
+                coros = [extract_forecast(i) for i in nws_site2forecast.keys()]
+                for coro in asyncio.as_completed(coros):
+                    result = await coro
+                    async with aiosqlite.connect(self.db_file) as conn:
+                        await conn.executemany(INSERT_ROW_SQL, result)
+                        await conn.commit()
+                    packet = {"type": self.__class__.__name__, "payload": result}
+                    await self.q.put(packet)
+                end = time.perf_counter()
+                logging.info(
+                    "%s took %.0f us", self.__class__.__name__, (end - start) * 1e6
+                )
+        except:
+            logging.error("Terminating %s",self.__class__.__name__)
 
+async def stopper(stop_event: asyncio.Event, interval: float = 1, p: float = 0.01):
+    """
+    Periodically wakes up and, with probability *p*, sets *stop_event*
+    so that the entire program shuts down gracefully.
+    """
+    while not stop_event.is_set():
+        await asyncio.sleep(interval)
+        if np.random.random() < p:
+            logging.warning("Stopper triggered shutdown!")
+            stop_event.set()
+            break
 
 async def consumer(queue: asyncio.Queue):
     while True:
@@ -164,13 +173,22 @@ async def consumer(queue: asyncio.Queue):
 
 async def main():
     queue = asyncio.Queue(maxsize=10_000)
-    producers = [ForecastPoll(queue, "forecast.db")]
+    stop_event = asyncio.Event()
+
+    producers = [ForecastPoll(queue, stop_event, "forecast.db")]
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
     consumer_task = asyncio.create_task(consumer(queue))
+    stopper_task = asyncio.create_task(stopper(stop_event))   # ← NEW
 
-    await asyncio.gather(*producer_tasks)
-    await queue.join()
-    await consumer_task
+    # Wait for the first task to finish (usually the stopper)
+    done, pending = await asyncio.wait(
+        producer_tasks + [consumer_task, stopper_task],
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+
+    for t in pending:
+        t.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
 
 
 if __name__ == "__main__":
