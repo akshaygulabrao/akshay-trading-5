@@ -1,4 +1,4 @@
-import asyncio,logging,sys
+import asyncio,logging,sys,os
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
@@ -68,11 +68,19 @@ async def consumer(queue: asyncio.Queue):
 async def main() -> None:
     queue = asyncio.Queue(maxsize=10_000)
 
+    def _require_envs(*names):
+        for n in names:
+            if os.getenv(n) is None:
+                sys.exit(f"Missing env var {n}")
+
+    _require_envs("FORECAST_DB_PATH", "WEATHER_DB_PATH", "ORDERBOOK_DB_PATH")
+
     producers = [
-        ForecastPoll(queue, "forecast.db"),
-        SensorPoll(queue, "weather.db"),
-        ObWebsocket(queue, "data/data_orderbook.db"),
+        ForecastPoll(queue, os.getenv("FORECAST_DB_PATH")),
+        SensorPoll(queue, os.getenv("WEATHER_DB_PATH")),
+        ObWebsocket(queue, os.getenv("ORDERBOOK_DB_PATH")),
     ]
+
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
 
     consumer_task = asyncio.create_task(consumer(queue))
