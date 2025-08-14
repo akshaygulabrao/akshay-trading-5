@@ -47,16 +47,8 @@
       color: #000;
       margin: 8px 0 4px;       /* 8 px above, 4 px below */
     }
-      /* 1. Make every forecast cell big enough */
-  .forecast-cell {          /* or whatever class you already have on the <td> */
-    width: 340px;           /* whatever width you want */
-    height: 180px;
-    position: relative;     /* keeps the SVG inside nicely */
-  }
-
-  /* 2. Make the SVG fill that cell */
-  .forecast-cell svg {
-    width: 100%;
-    height: 100%;
-    display: block;
-  }
+  .chart-container {
+    width: 800px;
+    height: 400px;
+    margin: 20px;
+}

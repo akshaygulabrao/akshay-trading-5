@@ -99,8 +99,8 @@ function logDatum(d){
 
         siteRow.appendChild(dateCell);
       }
-      dateCell.className  = 'forecast-cell';     
-      dateCell.id         = `cell-${siteKey}`;
+      dateCell.className  = 'chart-container';     
+      dateCell.id         = `#cell-${siteKey}`;
       dateCell.innerHTML  = `<div class="siteDayLabel">${siteKey}</div>`;
       graph.draw(`#cell-${siteKey}`, d);
 }

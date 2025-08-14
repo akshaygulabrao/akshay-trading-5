@@ -27,7 +27,10 @@ def graph_readings_forecast(site, days):
     )
     conn.close()
     wthr['dt'] = pd.to_datetime(wthr['observation_time'], utc=False)
-    wthr = wthr.dropna(axis=0).tail(13 * 24 * days)
+    if site != "KNYC":
+        wthr = wthr.dropna(axis=0).tail(13 * 24 * days)
+    else:
+        wthr = wthr.dropna(axis=0).tail(24 * days)
 
     # ---- build dict for d3 --------------------------------------------------
     return {

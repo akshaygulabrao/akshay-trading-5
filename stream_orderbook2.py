@@ -7,7 +7,7 @@ import uvicorn
 from weather_extract_forecast import ForecastPoll
 from weather_sensor_reading import SensorPoll
 from orderbook import ObWebsocket
-from graph_readings_forecast import graph_readings_forecast
+from demo_graph_readings_forecast import graph_readings_forecast
 
 from functools import partial
 import concurrent.futures
