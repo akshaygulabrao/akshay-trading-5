@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+  <meta charset="UTF-8"/>
+  <title>Live Order-Book</title>
+
+  <link rel="stylesheet" href="style.css" />
+  <script type="module" src="websocket.js" defer></script>
+</head>
+
+<body>
+  <!-- ==========  TOP BAR  ========== -->
+  <div id="topBar">
+    <span id="countdown">Calculating…</span>
+    &nbsp;&nbsp;|&nbsp;&nbsp;
+    <label>
+      Portfolio Balance: $
+      <input id="balance"
+             type="number"
+             step="0.01"
+             placeholder="0.00"/>
+    </label>
+  </div>
+
+  <!-- ==========  MASTER TABLE  ========== -->
+  <table id="master">
+    <thead><tr></tr></thead>
+    <tbody></tbody>
+  </table>
+
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+</body>
+</html>

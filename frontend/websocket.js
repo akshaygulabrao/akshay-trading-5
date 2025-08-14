@@ -1,92 +1,11 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <title>Live Order-Book</title>
+import * as graph from './graph.js';
 
-  <!-- ==========  STYLES  ========== -->
-  <style>
-    /* page layout */
-    body {
-      display: flex;
-      flex-direction: column;   /* ← add this line */
-      align-items: center;      /* keep it centered */
-      margin: 0;
-      padding: 20px;
-      font-family: sans-serif;
-    }
+const ws   = new WebSocket("ws://0.0.0.0:8000/ws");
+const rows = new Map();   // ticker → <tr>
+const books= new Map();   // eventKey → <table class=book>
 
-    /* top countdown / balance bar */
-    #topBar {
-      margin: 1rem 0;
-      font-family: monospace;
-    }
-    #balance {
-      width: 100px;
-    }
-
-    /* master table (outer grid) */
-    #master {
-      border: 1px solid black;
-      border-collapse: collapse;
-    }
-    #master th,
-    #master td {
-      border: 1px solid black;
-      padding: 4px 8px;
-      text-align: center;
-    }
-
-    /* inner order-book tables */
-    .book {
-      border: none;
-      border-collapse: collapse;
-      margin: 0 auto 20px;     /* 20 px below each book */
-    }
-    .book td,
-    .book th {
-      border: none;
-      padding: 2px 6px;
-    }
-
-    /* site-day header */
-    .siteDayLabel {
-      font-size: 1em;
-      color: #000;
-      margin: 8px 0 4px;       /* 8 px above, 4 px below */
-    }
-  </style>
-</head>
-
-<body>
-  <!-- ==========  TOP BAR  ========== -->
-  <div id="topBar">
-    <span id="countdown">Calculating…</span>
-    &nbsp;&nbsp;|&nbsp;&nbsp;
-    <label>
-      Portfolio Balance: $
-      <input id="balance"
-             type="number"
-             step="0.01"
-             placeholder="0.00"/>
-    </label>
-  </div>
-
-  <!-- ==========  MASTER TABLE  ========== -->
-  <table id="master">
-    <thead><tr></tr></thead>
-    <tbody></tbody>
-  </table>
-
-  <!-- ==========  JAVASCRIPT  ========== -->
-  <script>
-    /* ---------- WebSocket & Grid ---------- */
-    const ws   = new WebSocket("ws://107.22.134.132:8000/ws");
-    const rows = new Map();   // ticker → <tr>
-    const books= new Map();   // eventKey → <table class=book>
-
-    ws.onopen  = () => console.log("📡 connected");
-    ws.onclose = () => console.log("❌ closed");
+ws.onopen  = () => console.log("📡 connected");
+ws.onclose = () => console.log("❌ closed");  
 
 ws.onmessage = (evt) => {
   const msg = JSON.parse(evt.data);
@@ -117,7 +36,7 @@ ws.onmessage = (evt) => {
       const allCells = [...siteRow.cells];
       let insertBefore = null;
       for (const c of allCells) {
-        if (new Date(date) > new Date(c.dataset.date)) {
+        if (new Date(date) > new Date(c.dataset.date) || c.dataset.date === 'site') {
           insertBefore = c;
           break;
         }
@@ -154,16 +73,43 @@ ws.onmessage = (evt) => {
       })
       .forEach(r => tbody.appendChild(r));
 
-  } else {
-    /* ----  NEW: log everything else  ---- */
+  } else if (msg.type == "graph") {
+    msg.data.forEach(logDatum);
+  } 
+  else {
     console.log('Non-orderbook message:', msg);
   }
 };
 
-    function parseTicker(raw) {
-      const p = raw.split('-');
-      return { site: p[0], date: p[1], strike: p[2] || null };
-    }
+function logDatum(d){
+      //console.log(d);
+      const siteKey = d.forecasts.site;
+      let siteRow = [...master.tBodies[0].rows]
+              .find(r => r.dataset.siteKey === d.forecasts.site);
+      if (!siteRow) {
+        siteRow = master.tBodies[0].insertRow();
+        siteRow.dataset.siteKey = siteKey;
+      }
+      let dateCell = [...siteRow.cells]
+            .find(c => c.dataset.date === 'site');
+      if (!dateCell) {
+        dateCell = document.createElement('td');
+        dateCell.dataset.date = 'site';
+        dateCell.dataset.site = siteKey;
+
+        siteRow.appendChild(dateCell);
+      }
+      dateCell.className  = 'forecast-cell';     
+      dateCell.id         = `cell-${siteKey}`;
+      dateCell.innerHTML  = `<div class="siteDayLabel">${siteKey}</div>`;
+      graph.draw(`#cell-${siteKey}`, d);
+}
+
+
+function parseTicker(raw) {
+  const p = raw.split('-');
+  return { site: p[0], date: p[1], strike: p[2] || null };
+}
 
     /* ---------- Countdown to 3 AM EST ---------- */
     const fmt = n => n.toString().padStart(2,'0');
@@ -191,6 +137,3 @@ ws.onmessage = (evt) => {
     balInput.addEventListener('input', () =>
       localStorage.setItem('portfolioBalance', balInput.value)
     );
-  </script>
-</body>
-</html>
