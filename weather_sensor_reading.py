@@ -63,6 +63,13 @@ CREATE TABLE IF NOT EXISTS weather (
 );
 """
 
+site2mkt = {"KLAX":"KXHIGHLAX",
+            "KNYC": "KXHIGHNY",
+            "KMDW":"KXHIGHCHI",
+            "KAUS":"KXHIGHAUS", 
+            "KMIA": "KXHIGHMIA",
+            "KDEN":"KXHIGHDEN",
+            "KPHL":"KXHIGHPHIL"}
 
 async def get_timeseries_async(
     create_table_sql, insert_row_sql, db_file
@@ -99,12 +106,21 @@ async def get_timeseries_async(
                     st["OBSERVATIONS"]["wind_speed_set_1"],
                 )
             ]
+            latest_obs = {
+                site2mkt[st["STID"]]: list(
+                    zip(
+                        st["OBSERVATIONS"]["date_time"][-5:],
+                        st["OBSERVATIONS"]["air_temp_set_1"][-5:],
+                    )
+                )
+                for st in data["STATION"]
+            }
 
     async with aiosqlite.connect(db_file) as conn:
         await conn.executemany(insert_row_sql, all_obs)
         await conn.commit()
 
-    return all_obs
+    return latest_obs
 
 
 class SensorPoll:

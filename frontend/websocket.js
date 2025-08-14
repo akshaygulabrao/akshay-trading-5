@@ -1,5 +1,3 @@
-import * as graph from './graph.js';
-
 const ws   = new WebSocket("ws://0.0.0.0:8000/ws");
 const rows = new Map();   // ticker → <tr>
 const books= new Map();   // eventKey → <table class=book>
@@ -36,7 +34,7 @@ ws.onmessage = (evt) => {
       const allCells = [...siteRow.cells];
       let insertBefore = null;
       for (const c of allCells) {
-        if (new Date(date) > new Date(c.dataset.date) || c.dataset.date === 'site') {
+        if (new Date(date) > new Date(c.dataset.date)) {
           insertBefore = c;
           break;
         }
@@ -73,37 +71,42 @@ ws.onmessage = (evt) => {
       })
       .forEach(r => tbody.appendChild(r));
 
-  } else if (msg.type == "graph") {
-    msg.data.forEach(logDatum);
-  } 
+  } else if (msg.type === "SensorPoll") {
+    console.log(msg.payload);
+
+    const masterTbody = master.tBodies[0];
+    const siteToRows = msg.payload || {};
+
+    [...masterTbody.rows].forEach(row => {
+      const siteKey = row.dataset.siteKey;
+
+      /* 1. destroy any existing sensor cell, wherever it might be */
+      const oldCell = row.querySelector('td.sensorCol');
+      if (oldCell) oldCell.remove();
+
+      /* 2. create a brand-new cell and append it as the last column */
+      const sensorCell = row.insertCell();
+      sensorCell.className = 'sensorCol';
+
+      /* 3. populate it with the 5×2 table */
+      let innerHtml = '';
+      const rowsForSite = siteToRows[siteKey] || [];
+      if (rowsForSite.length) {
+        innerHtml = '<table border="1" cellpadding="4" cellspacing="0">';
+        rowsForSite.slice(0, 5).forEach(([k, v]) => {
+          innerHtml += `<tr><td>${k}</td><td>${v}</td></tr>`;
+        });
+        innerHtml += '</table>';
+      }
+      sensorCell.innerHTML = innerHtml;
+  });
+  }
   else {
     console.log('Non-orderbook message:', msg);
   }
 };
 
-function logDatum(d){
-      //console.log(d);
-      const siteKey = d.forecasts.site;
-      let siteRow = [...master.tBodies[0].rows]
-              .find(r => r.dataset.siteKey === d.forecasts.site);
-      if (!siteRow) {
-        siteRow = master.tBodies[0].insertRow();
-        siteRow.dataset.siteKey = siteKey;
-      }
-      let dateCell = [...siteRow.cells]
-            .find(c => c.dataset.date === 'site');
-      if (!dateCell) {
-        dateCell = document.createElement('td');
-        dateCell.dataset.date = 'site';
-        dateCell.dataset.site = siteKey;
 
-        siteRow.appendChild(dateCell);
-      }
-      dateCell.className  = 'chart-container';     
-      dateCell.id         = `#cell-${siteKey}`;
-      dateCell.innerHTML  = `<div class="siteDayLabel">${siteKey}</div>`;
-      graph.draw(`#cell-${siteKey}`, d);
-}
 
 
 function parseTicker(raw) {

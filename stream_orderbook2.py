@@ -64,8 +64,9 @@ async def consumer(queue: asyncio.Queue):
     """
     while True:
         message = await queue.get()
-        if message["type"] == "graph":
-            logging.info("graph")
+        if message["type"] == "SensorPoll":
+            await manager.broadcast(message)
+            
         if message["type"] == "orderbook":
             await manager.broadcast(message)
 
