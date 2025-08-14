@@ -27,7 +27,7 @@ FILES=(
   "/Users/ox/workspace/akshay-trading-5/weather_sensor_reading.py"
   "/Users/ox/workspace/akshay-trading-5/stream_orderbook2.py"
   "/Users/ox/workspace/akshay-trading-5/orderbook.py"
-    "/Users/ox/workspace/akshay-trading-5/weather_extract_forecast.py"
+  "/Users/ox/workspace/akshay-trading-5/weather_extract_forecast.py"
 )
 
 # ---------- 4. Pre-flight checks ----------

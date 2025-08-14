@@ -57,42 +57,6 @@ async def websocket_endpoint(ws: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(ws)
 
-async def graph_readings_forecast_async(queue):
-    airports = ["KNYC", "KMDW", "KAUS", "KMIA", "KDEN", "KPHL", "KLAX"]
-    loop = asyncio.get_running_loop()
-
-    async def worker():
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            while True:
-                tasks = []
-                for apt in airports:
-                    def _run(a=apt):             # capture airport name for logging
-                        try:
-                            return graph_readings_forecast(a, 2)
-                        except Exception as exc:
-                            logging.exception("Failed for %s: %s", a, exc)
-                            return None          # or sentinel object
-                    tasks.append(loop.run_in_executor(pool, _run))
-
-                # gather with return_exceptions=True so one bad airport
-                # doesn’t cancel the rest
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                # Filter out None or Exception objects if you only want successes
-                data = [r for r in results if not isinstance(r, Exception) and r is not None]
-                msg = {"type": "graph", "data": data}
-                await queue.put(msg)
-
-                await asyncio.sleep(5)
-    while True:
-        try:
-            await worker()
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logging.exception("Unexpected error in forecast loop: %s", e)
-            await asyncio.sleep(5) 
-    
 async def consumer(queue: asyncio.Queue):
     """
     Waits for messages from your producers and immediately
@@ -102,7 +66,7 @@ async def consumer(queue: asyncio.Queue):
         message = await queue.get()
         if message["type"] == "graph":
             logging.info("graph")
-        if message["type"] == "graph" or message["type"] == "orderbook":
+        if message["type"] == "orderbook":
             await manager.broadcast(message)
 
 
@@ -124,7 +88,6 @@ async def main() -> None:
     ]
 
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
-    producer_tasks.append(asyncio.create_task(graph_readings_forecast_async(queue)))
 
     consumer_task = asyncio.create_task(consumer(queue))
 
