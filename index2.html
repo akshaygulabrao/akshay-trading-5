@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+
   <meta charset="UTF-8"/>
   <title>Live Order-Book</title>
 
@@ -117,7 +118,7 @@ ws.onmessage = (evt) => {
       const allCells = [...siteRow.cells];
       let insertBefore = null;
       for (const c of allCells) {
-        if (new Date(date) > new Date(c.dataset.date)) {
+        if (new Date(date) > new Date(c.dataset.date) || c.dataset.date === 'site') {
           insertBefore = c;
           break;
         }
@@ -154,12 +155,124 @@ ws.onmessage = (evt) => {
       })
       .forEach(r => tbody.appendChild(r));
 
-  } else {
-    /* ----  NEW: log everything else  ---- */
+  } else if (msg.type == "graph") {
+    msg.data.forEach(logDatum);
+  } 
+  else {
     console.log('Non-orderbook message:', msg);
   }
 };
 
+    function logDatum(d){
+          console.log(d);
+          const siteKey = d.forecasts.site;
+          let siteRow = [...master.tBodies[0].rows]
+                  .find(r => r.dataset.siteKey === d.forecasts.site);
+          if (!siteRow) {
+            siteRow = master.tBodies[0].insertRow();
+            siteRow.dataset.siteKey = siteKey;
+          }
+          let dateCell = [...siteRow.cells]
+                .find(c => c.dataset.date === 'site');
+          if (!dateCell) {
+            dateCell = document.createElement('td');
+            dateCell.dataset.date = 'site';
+            dateCell.dataset.site = siteKey;
+
+            siteRow.appendChild(dateCell);
+          }
+          dateCell.id = `cell-${siteKey}`;
+          dateCell.innerHTML = `<div class="siteDayLabel">${siteKey} </div>`;
+          drawXYAxes(`#cell-${siteKey}`);
+
+    }
+function drawXYAxes(selector) {
+  // 1. dimensions
+  const margin = { top: 2, right: 2, bottom: 2, left: 2 };
+  const width  = 50 - margin.left - margin.right;
+  const height = 50 - margin.top  - margin.bottom;
+
+  // 2. scales
+  const x = d3.scaleLinear().domain([0, 1]).range([0, width]);
+  const y = d3.scaleLinear().domain([0, 1]).range([height, 0]);
+
+  // 3. svg (create once)
+  const svg = d3.select(selector)
+      .selectAll('svg.xy-plot')
+      .data([null])
+      .join('svg')
+        .attr('class', 'xy-plot')
+        .attr('width',  width  + margin.left + margin.right)
+        .attr('height', height + margin.top  + margin.bottom);
+
+  const g = svg.selectAll('g')
+      .data([null])
+      .join('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // 4. grid lines
+  g.selectAll('line.grid')
+      .data([
+        { x1: 0, y1: y(0.5), x2: width,  y2: y(0.5) }, // horizontal
+        { x1: x(0.5), y1: 0, x2: x(0.5), y2: height }  // vertical
+      ])
+      .join('line')
+      .attr('class', 'grid')
+      .attr('stroke', '#e0e0e0')
+      .attr('stroke-width', 0.5)
+      .attr('x1', d => d.x1)
+      .attr('y1', d => d.y1)
+      .attr('x2', d => d.x2)
+      .attr('y2', d => d.y2);
+
+  // 5. axes
+  const xAxis = d3.axisBottom(x)
+      .ticks(2)          // 0, 0.5, 1
+      .tickSize(2)
+      .tickFormat(d3.format('0.1f'));
+  const yAxis = d3.axisLeft(y)
+      .ticks(2)
+      .tickSize(2)
+      .tickFormat(d3.format('0.1f'));
+
+  g.selectAll('g.x-axis')
+      .data([null])
+      .join('g')
+      .attr('class', 'x-axis')
+      .attr('transform', `translate(0,${height})`)
+      .call(xAxis)
+      .call(g => g.select('.domain').attr('stroke', '#aaa').attr('stroke-width', 1))
+      .call(g => g.selectAll('.tick line').attr('stroke', '#aaa'))
+      .call(g => g.selectAll('.tick text')
+          .attr('fill', '#666')
+          .attr('font-size', 3)
+          .attr('text-anchor', 'middle'));
+
+  g.selectAll('g.y-axis')
+      .data([null])
+      .join('g')
+      .attr('class', 'y-axis')
+      .call(yAxis)
+      .call(g => g.select('.domain').attr('stroke', '#aaa').attr('stroke-width', 1))
+      .call(g => g.selectAll('.tick line').attr('stroke', '#aaa'))
+      .call(g => g.selectAll('.tick text')
+          .attr('fill', '#666')
+          .attr('font-size', 3)
+          .attr('text-anchor', 'end'));
+
+  // 6. diagonal line
+  const line = d3.line()
+      .x(d => x(d))
+      .y(d => y(d));
+
+  g.selectAll('path')
+      .data([[0, 1]])
+      .join('path')
+      .attr('fill', 'none')
+      .attr('stroke', '#0077b6')
+      .attr('stroke-width', 1.5)
+      .attr('d', line);
+}
     function parseTicker(raw) {
       const p = raw.split('-');
       return { site: p[0], date: p[1], strike: p[2] || null };
@@ -192,5 +305,6 @@ ws.onmessage = (evt) => {
       localStorage.setItem('portfolioBalance', balInput.value)
     );
   </script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 </body>
 </html>
