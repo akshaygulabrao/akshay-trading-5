@@ -7,7 +7,6 @@ import uvicorn
 from weather_extract_forecast import ForecastPoll
 from weather_sensor_reading import SensorPoll
 from orderbook import ObWebsocket
-from demo_graph_readings_forecast import graph_readings_forecast
 
 from functools import partial
 import concurrent.futures
@@ -52,8 +51,8 @@ async def websocket_endpoint(ws: WebSocket):
     await manager.connect(ws)
     try:
         while True:
-            # Keep the socket open; we never expect inbound messages
-            await ws.receive_text()
+            await ws.send_json({"type": "heartbeat"})
+            await asyncio.sleep(25) 
     except WebSocketDisconnect:
         manager.disconnect(ws)
 

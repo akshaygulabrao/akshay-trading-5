@@ -72,34 +72,52 @@ ws.onmessage = (evt) => {
       .forEach(r => tbody.appendChild(r));
 
   } else if (msg.type === "SensorPoll") {
-    console.log(msg.payload);
-
-    const masterTbody = master.tBodies[0];
     const siteToRows = msg.payload || {};
-
-    [...masterTbody.rows].forEach(row => {
+    [...master.tBodies[0].rows].forEach(row => {
       const siteKey = row.dataset.siteKey;
+      const cell    = getOrCreateSensorCol(row, 'sensorCol');
 
-      /* 1. destroy any existing sensor cell, wherever it might be */
-      const oldCell = row.querySelector('td.sensorCol');
-      if (oldCell) oldCell.remove();
-
-      /* 2. create a brand-new cell and append it as the last column */
-      const sensorCell = row.insertCell();
-      sensorCell.className = 'sensorCol';
-
-      /* 3. populate it with the 5×2 table */
-      let innerHtml = '';
+      let inner = '';
       const rowsForSite = siteToRows[siteKey] || [];
       if (rowsForSite.length) {
-        innerHtml = '<table border="1" cellpadding="4" cellspacing="0">';
+        inner = '<table border="1" cellpadding="4" cellspacing="0">';
         rowsForSite.slice(0, 5).forEach(([k, v]) => {
-          innerHtml += `<tr><td>${k.slice(11,16)}</td><td>${v}</td></tr>`;
+          inner += `<tr><td>${k.slice(11, 16)}</td><td>${v}</td></tr>`;
         });
-        innerHtml += '</table>';
+        inner += '</table>';
       }
-      sensorCell.innerHTML = innerHtml;
-  });
+      cell.innerHTML = inner;
+    });
+  }
+else if (msg.type === "ForecastPoll") {
+  const siteKey = msg.site;                 // ← use msg.site
+  const row     = master.tBodies[0].querySelector(`tr[data-site-key="${siteKey}"]`);
+  if (!row) return;                         // site not rendered yet
+
+  const cell = getOrCreateForecastCol(row);
+
+/* build 12×8 table */
+let inner = '';
+const rows = msg.payload || [];
+if (rows.length) {
+  inner = '<table border="1" cellpadding="2" cellspacing="0" style="font-size:1em;">';
+
+  for (let r = 0; r < 8; r++) {
+    inner += '<tr>';
+    for (let c = 0; c < 6; c++) {
+      const idx = r * 6 + c;
+      if (idx < rows.length) {
+        const [h, v] = rows[idx];
+        inner += `<td><span style="color:red;">${String(h).slice(8,13)}</span>:${v}</td>`;
+      } else {
+        inner += '<td></td>';
+      }
+    }
+    inner += '</tr>';
+  }
+  inner += '</table>';
+}
+cell.innerHTML = inner;
   }
   else {
     console.log('Non-orderbook message:', msg);
@@ -140,3 +158,27 @@ function parseTicker(raw) {
     balInput.addEventListener('input', () =>
       localStorage.setItem('portfolioBalance', balInput.value)
     );
+
+function getOrCreateSensorCol(row) {
+  const old = row.querySelector('td.sensorCol');
+  if (old) old.remove();
+
+  const dateCells = [...row.cells].filter(c => c.dataset.date);
+  const idx = dateCells.length ? dateCells[dateCells.length - 1].cellIndex + 1 : 0;
+
+  const cell = row.insertCell(idx);
+  cell.className = 'sensorCol';
+  return cell;
+}
+
+function getOrCreateForecastCol(row) {
+  const old = row.querySelector('td.forecastCol');
+  if (old) old.remove();
+
+  const sensorCell = row.querySelector('td.sensorCol');
+  const idx = sensorCell ? sensorCell.cellIndex + 1
+                         : (row.cells.length);   // fallback if no sensor yet
+  const cell = row.insertCell(idx);
+  cell.className = 'forecastCol';
+  return cell;
+}

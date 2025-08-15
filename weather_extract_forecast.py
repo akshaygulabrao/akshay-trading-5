@@ -58,6 +58,14 @@ nws_site2forecast = {
     "KLAX": "https://forecast.weather.gov/MapClick.php?lat=33.96&lon=-118.42&lg=english&&FcstType=digital",
 }
 
+site2mkt = {"KLAX":"KXHIGHLAX",
+            "KNYC": "KXHIGHNY",
+            "KMDW":"KXHIGHCHI",
+            "KAUS":"KXHIGHAUS", 
+            "KMIA": "KXHIGHMIA",
+            "KDEN":"KXHIGHDEN",
+            "KPHL":"KXHIGHPHIL"}
+
 
 async def extract_forecast(nws_site):
     """Fetches forecast data for a given NWS site."""
@@ -149,7 +157,7 @@ class ForecastPoll:
                     await conn.executemany(INSERT_ROW_SQL, result)
                     await conn.commit()
                 filtered = [(i['observation_time'],i['air_temp']) for i in result]
-                packet = {"type": self.__class__.__name__, "payload": filtered}
+                packet = {"type": self.__class__.__name__, "site": site2mkt[result[0]['station']],"payload": filtered}
                     
                 await self.q.put(packet)
             end = time.perf_counter()
