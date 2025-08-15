@@ -29,3 +29,4 @@ logs
 *db
 data/*db
 frontend/node_modules
+*ipynb

@@ -58,7 +58,7 @@ ws.onmessage = (evt) => {
       tr = tbody.insertRow();
       tr.dataset.ticker = ticker;
       tr.innerHTML = `
-        <td>${ticker}</td>
+        <td>${strike}</td>
         <td>${yes}</td>
         <td>${no}</td>`;
     }
@@ -94,7 +94,7 @@ ws.onmessage = (evt) => {
       if (rowsForSite.length) {
         innerHtml = '<table border="1" cellpadding="4" cellspacing="0">';
         rowsForSite.slice(0, 5).forEach(([k, v]) => {
-          innerHtml += `<tr><td>${k}</td><td>${v}</td></tr>`;
+          innerHtml += `<tr><td>${k.slice(11,16)}</td><td>${v}</td></tr>`;
         });
         innerHtml += '</table>';
       }

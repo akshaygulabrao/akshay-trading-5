@@ -148,7 +148,9 @@ class ForecastPoll:
                 async with aiosqlite.connect(self.db_file) as conn:
                     await conn.executemany(INSERT_ROW_SQL, result)
                     await conn.commit()
-                packet = {"type": self.__class__.__name__, "payload": result}
+                filtered = [(i['observation_time'],i['air_temp']) for i in result]
+                packet = {"type": self.__class__.__name__, "payload": filtered}
+                    
                 await self.q.put(packet)
             end = time.perf_counter()
             logging.info(

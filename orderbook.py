@@ -120,7 +120,6 @@ class ObWebsocket:
                     }
                 )
             )
-        
     async def heartbeat(self,ws) -> None:
         while True:
             await asyncio.sleep(300)
@@ -254,13 +253,13 @@ class ObWebsocket:
                             else "N/A",
                         }
                         await self.queue.put({"type": "orderbook", "data": mkt})
-                    await self.writer.maybe_flush()
+                    # await self.writer.maybe_flush()
                     end = time.perf_counter()
-                    logging.info(
-                        "%s took %.0f us",
-                        self.__class__.__name__,
-                        (end - start) * 1e6,
-                    )
+                    # logging.info(
+                    #     "%s took %.0f us",
+                    #     self.__class__.__name__,
+                    #     (end - start) * 1e6,
+                    # )
             finally:
                 logging.info('flushing websockets to db')
-                await self.writer._flush()          # or expose `writer.drain()` publicly
+                # await self.writer._flush()          # or expose `writer.drain()` publicly
