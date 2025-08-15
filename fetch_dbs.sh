@@ -33,11 +33,12 @@ echo "Creating local backup directory: $LOCAL_DIR"
 mkdir -p "$LOCAL_DIR"
 
 echo "Copying *.db* files from $HOST:$REMOTE_DIR ..."
-rsync -avz --include='*.db*' --exclude='*' \
+rsync -avz \
   -e "ssh -i $KEY" \
-  "$USER@$HOST:$REMOTE_DIR/" \
+  "$USER@$HOST:$REMOTE_DIR/forecast.db" \
+  "$USER@$HOST:$REMOTE_DIR/weather.db" \
   "$LOCAL_DIR/"
-
+  
 echo "Remote db files copied into $LOCAL_DIR"
 
 sqlite3 forecast.db "SELECT COUNT() from forecast;"

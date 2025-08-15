@@ -142,6 +142,8 @@ class ForecastPoll:
     def __init__(self, queue: asyncio.Queue, db_file: str):
         self.q = queue
         self.db_file = db_file
+        logging.getLogger("httpx").setLevel(logging.CRITICAL)
+
 
     async def run(self):
         async with aiosqlite.connect(self.db_file) as conn:
