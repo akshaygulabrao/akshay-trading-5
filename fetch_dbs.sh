@@ -41,10 +41,10 @@ rsync -avz \
   
 echo "Remote db files copied into $LOCAL_DIR"
 
-sqlite3 forecast.db "SELECT COUNT() from forecast;"
+sqlite3 $FORECAST_DB_PATH "SELECT COUNT() from forecast;"
 ./script_merge_forecast_db.py $FORECAST_DB_PATH ./db_backup/forecast.db
-sqlite3 forecast.db "SELECT COUNT() from forecast;"
+sqlite3 $FORECAST_DB_PATH "SELECT COUNT() from forecast;"
 
-sqlite3 weather.db "SELECT COUNT() from weather;"
+sqlite3 $WEATHER_DB_PATH "SELECT COUNT() from weather;"
 ./script_merge_sensor_db.py $WEATHER_DB_PATH ./db_backup/weather.db
-sqlite3 weather.db "SELECT COUNT() from weather;"
+sqlite3 $WEATHER_DB_PATH "SELECT COUNT() from weather;"

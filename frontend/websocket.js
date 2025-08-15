@@ -1,10 +1,10 @@
-const ws   = new WebSocket("ws://0.0.0.0:8000/ws");
+const ws   = new WebSocket(import.meta.env.VITE_SOCKET_URL);
 const rows = new Map();   // ticker → <tr>
 const books= new Map();   // eventKey → <table class=book>
-
 ws.onopen  = () => console.log("📡 connected");
 ws.onclose = () => console.log("❌ closed");  
 
+document.title = import.meta.env.VITE_PAGE_TITLE
 ws.onmessage = (evt) => {
   const msg = JSON.parse(evt.data);
 

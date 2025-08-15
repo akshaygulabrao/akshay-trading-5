@@ -2,6 +2,7 @@ import asyncio,logging,sys,os
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
+from starlette.websockets import WebSocket, WebSocketState
 import uvicorn
 
 from weather_extract_forecast import ForecastPoll
@@ -50,11 +51,12 @@ app = FastAPI()
 async def websocket_endpoint(ws: WebSocket):
     await manager.connect(ws)
     try:
-        while True:
+        while ws.client_state == WebSocketState.CONNECTED:
             await ws.send_json({"type": "heartbeat"})
             await asyncio.sleep(25) 
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect,RuntimeError):
         manager.disconnect(ws)
+        pass
 
 async def consumer(queue: asyncio.Queue):
     """

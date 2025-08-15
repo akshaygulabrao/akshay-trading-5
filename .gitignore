@@ -28,5 +28,6 @@ data_orderbook.db
 logs
 *db
 data/*db
-frontend/node_modules
+frontend/node_modules/** 
+node_modules
 *ipynb
