@@ -2,10 +2,12 @@ import re
 import json
 from typing import Dict, Any, Optional
 
+
 def parse_climate_report(text: str) -> Dict[str, Any]:
     """
     Parse the Central Park climate report into JSON.
     """
+
     # Helper to find a single line and extract the last (right-most) number
     def extract_line_value(line: str, cast=float) -> Optional[Any]:
         parts = line.strip().split()
@@ -54,7 +56,7 @@ def parse_climate_report(text: str) -> Dict[str, Any]:
         "weather_conditions": [],
         "relative_humidity": {},
         "normals_today": {},
-        "sun": {}
+        "sun": {},
     }
 
     i = 0
@@ -192,6 +194,7 @@ def parse_climate_report(text: str) -> Dict[str, Any]:
         i += 1
 
     return data
+
 
 # Example usage:
 if __name__ == "__main__":

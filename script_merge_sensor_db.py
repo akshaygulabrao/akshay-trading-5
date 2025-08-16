@@ -11,7 +11,7 @@ are skipped automatically thanks to the UNIQUE constraint.
 """
 
 import sqlite3
-import sys,os
+import sys, os
 import pathlib
 
 DDL = """
@@ -60,6 +60,7 @@ def merge(target_path: pathlib.Path, source_path: pathlib.Path) -> None:
 
 
 if __name__ == "__main__":
+
     def _require_envs(*names):
         for n in names:
             p = os.getenv(n)
@@ -71,4 +72,3 @@ if __name__ == "__main__":
     source_db = "./db_backup/weather.db"
 
     merge(os.getenv("WEATHER_DB_PATH"), source_db)
-

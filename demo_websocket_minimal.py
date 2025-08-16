@@ -27,9 +27,7 @@ def sign_pss_text(private_key, text: str) -> str:
     message = text.encode("utf-8")
     signature = private_key.sign(
         message,
-        padding.PSS(
-            mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH
-        ),
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
         hashes.SHA256(),
     )
     return base64.b64encode(signature).decode("utf-8")

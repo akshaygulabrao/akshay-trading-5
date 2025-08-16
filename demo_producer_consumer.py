@@ -39,8 +39,7 @@ class Producer:
             self.produce_latencies.append(dt)
 
         print(
-            f"[{fmt(us())}] P{self.pid}: done producing "
-            f"(total put() time {self.produce_time_total} µs)"
+            f"[{fmt(us())}] P{self.pid}: done producing " f"(total put() time {self.produce_time_total} µs)"
         )
 
 
@@ -65,9 +64,7 @@ async def main():
     items_per_producer = 10
     queue = asyncio.Queue(maxsize=10_000)
 
-    producers = [
-        Producer(pid, items_per_producer, queue) for pid in range(num_producers)
-    ]
+    producers = [Producer(pid, items_per_producer, queue) for pid in range(num_producers)]
 
     consumer_task = asyncio.create_task(consumer(queue))
 

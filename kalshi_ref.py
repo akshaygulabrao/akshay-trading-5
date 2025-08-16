@@ -121,18 +121,14 @@ class KalshiHttpClient(KalshiBaseClient):
     def post(self, path: str, body: dict) -> Any:
         """Performs an authenticated POST request to the Kalshi API."""
         self.rate_limit()
-        response = requests.post(
-            self.host + path, json=body, headers=self.request_headers("POST", path)
-        )
+        response = requests.post(self.host + path, json=body, headers=self.request_headers("POST", path))
         self.raise_if_bad_response(response)
         return response.json()
 
     def get(self, path: str, params: Dict[str, Any] = {}) -> Any:
         """Performs an authenticated GET request to the Kalshi API."""
         self.rate_limit()
-        response = requests.get(
-            self.host + path, headers=self.request_headers("GET", path), params=params
-        )
+        response = requests.get(self.host + path, headers=self.request_headers("GET", path), params=params)
         self.raise_if_bad_response(response)
         return response.json()
 
@@ -194,9 +190,7 @@ class KalshiWebSocketClient(KalshiBaseClient):
         """Establishes a WebSocket connection using authentication."""
         host = self.WS_BASE_URL + self.url_suffix
         auth_headers = self.request_headers("GET", self.url_suffix)
-        async with websockets.connect(
-            host, additional_headers=auth_headers
-        ) as websocket:
+        async with websockets.connect(host, additional_headers=auth_headers) as websocket:
             self.ws = websocket
             await self.on_open(tickers)
             await self.handler()

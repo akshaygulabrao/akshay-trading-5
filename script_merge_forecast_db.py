@@ -1,6 +1,6 @@
 #!.venv/bin/python
 import sqlite3
-import sys,os,pathlib
+import sys, os, pathlib
 
 DDL = """
     CREATE TABLE IF NOT EXISTS forecast (
@@ -50,6 +50,7 @@ def merge(master_path: str, src_path: str) -> None:
 
 
 if __name__ == "__main__":
+
     def _require_envs(*names):
         for n in names:
             p = os.getenv(n)
