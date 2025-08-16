@@ -144,38 +144,17 @@ class ForecastPoll:
     def __init__(self, queue: asyncio.Queue, db_file: str):
         self.q = queue
         self.db_file = db_file
-        logging.getLogger("httpx").setLevel(logging.CRITICAL)
 
     async def resubscribe(self):
         await asyncio.sleep(1)
-        start = time.perf_counter()
+        start = time.perf_counter_ns()
         coros = [extract_forecast(i) for i in nws_site2forecast.keys()]
         for coro in asyncio.as_completed(coros):
-            result = await coro
-            async with aiosqlite.connect(self.db_file) as conn:
-                await conn.executemany(INSERT_ROW_SQL, result)
-                await conn.commit()
-            filtered = [(i["observation_time"], i["air_temp"]) for i in result]
-            packet = {
-                "type": self.__class__.__name__,
-                "site": site2mkt[result[0]["station"]],
-                "payload": filtered,
-            }
-
-            await self.q.put(packet)
-        end = time.perf_counter()
-        logging.info("%s took %.0f us", self.__class__.__name__, (end - start) * 1e6)
-
-    async def run(self):
-        async with aiosqlite.connect(self.db_file) as conn:
-            await conn.execute(CREATE_TABLE_SQL)
-            await conn.commit()
-        while True:
-            await asyncio.sleep(5)
-            start = time.perf_counter()
-            coros = [extract_forecast(i) for i in nws_site2forecast.keys()]
-            for coro in asyncio.as_completed(coros):
+            try:
                 result = await coro
+                if not result:  # Skip if no data
+                    continue
+                    
                 async with aiosqlite.connect(self.db_file) as conn:
                     await conn.executemany(INSERT_ROW_SQL, result)
                     await conn.commit()
@@ -185,10 +164,43 @@ class ForecastPoll:
                     "site": site2mkt[result[0]["station"]],
                     "payload": filtered,
                 }
-
                 await self.q.put(packet)
-            end = time.perf_counter()
-            logging.info("%s took %.0f us", self.__class__.__name__, (end - start) * 1e6)
+            except Exception as e:
+                logging.error("Error processing forecast: %s", e)
+                continue
+        end = time.perf_counter_ns()
+        logging.info("%s took %d ns", self.__class__.__name__, (end - start))
+
+
+    async def run(self):
+        async with aiosqlite.connect(self.db_file) as conn:
+            await conn.execute(CREATE_TABLE_SQL)
+            await conn.commit()
+        while True:
+            await asyncio.sleep(5)
+            start = time.perf_counter_ns()
+            coros = [extract_forecast(i) for i in nws_site2forecast.keys()]
+            for coro in asyncio.as_completed(coros):
+                try:
+                    result = await coro
+                    if not result:  # Skip if no data
+                        continue
+                        
+                    async with aiosqlite.connect(self.db_file) as conn:
+                        await conn.executemany(INSERT_ROW_SQL, result)
+                        await conn.commit()
+                    filtered = [(i["observation_time"], i["air_temp"]) for i in result]
+                    packet = {
+                        "type": self.__class__.__name__,
+                        "site": site2mkt[result[0]["station"]],
+                        "payload": filtered,
+                    }
+                    await self.q.put(packet)
+                except Exception as e:
+                    logging.error("Error processing forecast: %s", e)
+                    continue
+            end = time.perf_counter_ns()
+            logging.info("%s took %d ns", self.__class__.__name__, (end - start))
 
 
 async def consumer(queue: asyncio.Queue):

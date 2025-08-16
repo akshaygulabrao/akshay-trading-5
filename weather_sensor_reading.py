@@ -155,7 +155,7 @@ class SensorPoll:
     async def run(self):
         while True:
             await asyncio.sleep(1)
-            start = time.perf_counter()
+            start = time.perf_counter_ns()
             try:
                 payload = await get_timeseries_async(CREATE_TABLE_SQL, INSERT_ROW_SQL, self.db_file)
             except (ClientError, asyncio.TimeoutError, ValueError) as exc:
@@ -163,19 +163,19 @@ class SensorPoll:
                 continue  # do not push bad/None data to the queue
             packet = {"type": self.__class__.__name__, "payload": payload}
             await self.q.put(packet)
-            end = time.perf_counter()
-            logging.info("%s took %.0f us", self.__class__.__name__, (end - start) * 1e6)
+            end = time.perf_counter_ns()
+            logging.info("%s took %d ns", self.__class__.__name__, (end - start))
 
     async def resubscribe(self):
-        start = time.perf_counter()
+        start = time.perf_counter_ns()
         try:
             payload = await get_timeseries_async(CREATE_TABLE_SQL, INSERT_ROW_SQL, self.db_file)
         except (ClientError, asyncio.TimeoutError, ValueError) as exc:
             logging.exception("Error fetching timeseries %s", exc)
         packet = {"type": self.__class__.__name__, "payload": payload}
         await self.q.put(packet)
-        end = time.perf_counter()
-        logging.info("%s took %.0f us", self.__class__.__name__, (end - start) * 1e6)
+        end = time.perf_counter_ns()
+        logging.info("%s took %d ns", self.__class__.__name__, (end - start))
 
 
 async def consumer(queue: asyncio.Queue):

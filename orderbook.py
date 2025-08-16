@@ -212,7 +212,7 @@ class ObWebsocket:
             )
             try:
                 async for raw in ws:
-                    start = time.perf_counter()
+                    start = time.perf_counter_ns()
                     data = json.loads(raw)
                     msg = data.get("msg", {})
                     ts_l = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds")
@@ -262,14 +262,8 @@ class ObWebsocket:
                         }
 
                         await self.queue.put({"type": "orderbook", "data": mkt})
-                        asyncio.create_task(self.maybe_place_order(mkt))
-                    # await self.writer.maybe_flush()
-                    end = time.perf_counter()
-                    # logging.info(
-                    #     "%s took %.0f us",
-                    #     self.__class__.__name__,
-                    #     (end - start) * 1e6,
-                    # )
+                    end = time.perf_counter_ns()
+                    logging.info(f"{end - start} ns")
             except Exception as e:
                 logging.error(e)
             finally:
