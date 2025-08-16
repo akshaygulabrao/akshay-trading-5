@@ -1,4 +1,4 @@
-import asyncio,logging,sys,os
+import asyncio, logging, sys, os
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
@@ -12,17 +12,24 @@ from orderbook import ObWebsocket
 from functools import partial
 import concurrent.futures
 
+
 class ConnectionManager:
     """
     Keeps track of every active WebSocket so we can broadcast
     a single message to all of them.
     """
-    def __init__(self):
+
+    def __init__(self, producers):
         self.active: set[WebSocket] = set()
+        self.producers = producers
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
+
         self.active.add(ws)
+        for p in self.producers:
+            if hasattr(p, "resubscribe"):
+                asyncio.create_task(p.resubscribe())
 
     def disconnect(self, ws: WebSocket):
         self.active.discard(ws)
@@ -37,45 +44,42 @@ class ConnectionManager:
             try:
                 if ws.client_state == WebSocketState.CONNECTED:
                     await ws.send_json(message)
-            except Exception:          # ConnectionClosed, etc.
+            except Exception:  # ConnectionClosed, etc.
                 dead.add(ws)
         # Clean-up in a second pass so we don’t mutate while iterating
         for ws in dead:
             self.active.discard(ws)
 
-manager = ConnectionManager()
-
-app = FastAPI()
-
-@app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
-    await manager.connect(ws)
-    try:
-        while ws.client_state == WebSocketState.CONNECTED:
-            await ws.send_json({"type": "heartbeat"})
-            await asyncio.sleep(25) 
-    except (WebSocketDisconnect,RuntimeError):
-        manager.disconnect(ws)
-        pass
-
-async def consumer(queue: asyncio.Queue):
-    """
-    Waits for messages from your producers and immediately
-    pushes them to every open WebSocket via ConnectionManager.
-    """
-    while True:
-        message = await queue.get()
-        if message["type"] == "SensorPoll":
-            await manager.broadcast(message)
-        if message["type"] == "ForecastPoll":
-            await manager.broadcast(message)
-        if message["type"] == "orderbook":
-            await manager.broadcast(message)
-
+    async def consumer(self, queue: asyncio.Queue):
+        """
+        Waits for messages from your producers and immediately
+        pushes them to every open WebSocket via ConnectionManager.
+        """
+        while True:
+            message = await queue.get()
+            if message["type"] == "SensorPoll":
+                await self.broadcast(message)
+            if message["type"] == "ForecastPoll":
+                await self.broadcast(message)
+            if message["type"] == "orderbook":
+                await self.broadcast(message)
 
 
 async def main() -> None:
     queue = asyncio.Queue(maxsize=10_000)
+
+    app = FastAPI()
+
+    @app.websocket("/ws")
+    async def websocket_endpoint(ws: WebSocket):
+        await manager.connect(ws)
+        try:
+            while ws.client_state == WebSocketState.CONNECTED:
+                await ws.send_json({"type": "heartbeat"})
+                await asyncio.sleep(25)
+        except (WebSocketDisconnect, RuntimeError):
+            manager.disconnect(ws)
+            pass
 
     def _require_envs(*names):
         for n in names:
@@ -89,20 +93,20 @@ async def main() -> None:
         SensorPoll(queue, os.getenv("WEATHER_DB_PATH")),
         ObWebsocket(queue, os.getenv("ORDERBOOK_DB_PATH")),
     ]
+    manager = ConnectionManager(producers)
 
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
 
-    consumer_task = asyncio.create_task(consumer(queue))
+    consumer_task = asyncio.create_task(manager.consumer(queue))
 
-    server = uvicorn.Server(
-        uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
-    )
+    server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info"))
     server_task = asyncio.create_task(server.serve())
 
-    await asyncio.gather(*producer_tasks, consumer_task, server_task,
-                         return_exceptions=True)
+    await asyncio.gather(*producer_tasks, consumer_task, server_task, return_exceptions=True)
+
 
 if __name__ == "__main__":
+
     root = logging.getLogger()
     root.setLevel(logging.INFO)
 

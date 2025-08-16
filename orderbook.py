@@ -25,6 +25,7 @@ CREATE_TABLE_SQL = """
 
 INSERT_ROW_SQL = "INSERT INTO orderbook_events VALUES (?,?,?,?,?,?,?,?)"
 
+
 class BatchWriter:
     """
     Accumulates rows in RAM and writes them to SQLite in one go
@@ -56,10 +57,7 @@ class BatchWriter:
         Called from the main loop after every message.
         Lock-free fast-path; only the actual flush is awaited.
         """
-        if (
-            len(self._rows) >= self.max_rows
-            or time.perf_counter() - self._last_flush >= self.max_idle
-        ):
+        if len(self._rows) >= self.max_rows or time.perf_counter() - self._last_flush >= self.max_idle:
             # Schedule the flush so we don't block the websocket loop
             if self._flush_task is None or self._flush_task.done():
                 self._flush_task = asyncio.create_task(self._flush())
@@ -68,8 +66,8 @@ class BatchWriter:
     # Internal
     # ------------------------------------------------------------------
     async def _flush(self) -> None:
-        async with self._lock:                      # ➊ serialize
-            if not self._rows:                      # ➋ double-check
+        async with self._lock:  # ➊ serialize
+            if not self._rows:  # ➋ double-check
                 return
             rows = self._rows
             self._rows = []
@@ -80,6 +78,7 @@ class BatchWriter:
                 await db.commit()
 
             logging.info("BatchWriter flushed %d rows", len(rows))
+
 
 class ObWebsocket:
     def __init__(self, queue: asyncio.Queue, db_file: str):
@@ -92,9 +91,18 @@ class ObWebsocket:
         self.tickers = []
         self.orderbook_delta_id = -1
         self.writer = BatchWriter(self.db_file)
+        self.ws = None
 
-    async def resubscribe(self, ws):
-            await ws.send(
+    async def resubscribe(self):
+        if self.ws is None or self.ws.state in (
+            websockets.protocol.State.CLOSING,
+            websockets.protocol.State.CLOSED,
+        ):
+            logging.info("self.ws not open")
+            return
+        try:
+            logging.info("resubscribing")
+            await self.ws.send(
                 json.dumps(
                     {
                         "id": 1,
@@ -102,13 +110,13 @@ class ObWebsocket:
                         "params": {
                             "sids": [self.orderbook_delta_id],
                             "market_tickers": self.tickers,
-                            "action": "remove"
+                            "action": "remove",
                         },
                     }
                 )
             )
-            await asyncio.get_event_loop().run_in_executor(None,self.active_tickers)
-            await ws.send(
+            await asyncio.get_event_loop().run_in_executor(None, self.active_tickers)
+            await self.ws.send(
                 json.dumps(
                     {
                         "id": 1,
@@ -120,11 +128,10 @@ class ObWebsocket:
                     }
                 )
             )
-    async def heartbeat(self,ws) -> None:
-        while True:
-            await asyncio.sleep(300)
-            await self.resubscribe(ws)
-    
+        except websockets.exceptions.ConnectionClosedError as e:
+            logging.warning("abnormal close: %s", e)
+            pass
+
     def active_tickers(self):
         self.tickers = []
         for city in ["NY", "CHI", "MIA", "AUS", "DEN", "PHIL", "LAX"]:
@@ -171,6 +178,7 @@ class ObWebsocket:
 
         headers = auth_headers("GET", "/trade-api/ws/v2")
         async with websockets.connect(self.url, additional_headers=headers) as ws:
+            self.ws = ws
 
             await ws.send(
                 json.dumps(
@@ -202,15 +210,12 @@ class ObWebsocket:
                     }
                 )
             )
-            asyncio.create_task(self.heartbeat(ws))
             try:
                 async for raw in ws:
                     start = time.perf_counter()
                     data = json.loads(raw)
                     msg = data.get("msg", {})
-                    ts_l = datetime.datetime.now(datetime.timezone.utc).isoformat(
-                        timespec="microseconds"
-                    )
+                    ts_l = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds")
                     ts_e = msg.get("ts", "")
                     seq = data.get("seq", 0)
 
@@ -219,21 +224,20 @@ class ObWebsocket:
                         self.order_books[ticker] = OrderBook()
                         self.order_books[ticker].process_snapshot(msg)
 
-                        for side_key, levels in (
-                            ("yes", msg.get("yes", [])),
-                            ("no", msg.get("no", [])),
-                        ):
-                            async with aiosqlite.connect(self.db_file) as db:
-                                side = 1 if side_key == "yes" else -1
-                                for px, qty in levels:
-                                    self.writer.add((ts_l, ts_e, seq, ticker,
-                                                side, px, qty, False))
+                        # for side_key, levels in (
+                        #     ("yes", msg.get("yes", [])),
+                        #     ("no", msg.get("no", [])),
+                        # ):
+                        # side = 1 if side_key == "yes" else -1
+                        # for px, qty in levels:
+                        #     self.writer.add((ts_l, ts_e, seq, ticker,
+                        #                 side, px, qty, False))
                     elif data["type"] == "orderbook_delta":
                         ticker = msg["market_ticker"]
                         if ticker in self.order_books:
                             self.order_books[ticker].process_delta(msg)
                         side = 1 if msg["side"] == "yes" else -1
-                        self.writer.add((ts_l, ts_e, seq, ticker, side, msg["price"], msg["delta"], True))
+                        # self.writer.add((ts_l, ts_e, seq, ticker, side, msg["price"], msg["delta"], True))
                     if data["type"] == "subscribed" and msg["channel"] == "orderbook_delta":
                         self.orderbook_delta_id = msg["sid"]
 
@@ -245,14 +249,20 @@ class ObWebsocket:
 
                         mkt = {
                             "ticker": market_ticker,
-                            "no": f"{100 - yes_top}@{ob.markets[market_ticker]['yes'][yes_top]}"
-                            if yes_top
-                            else "N/A",
-                            "yes": f"{100 - no_top}@{ob.markets[market_ticker]['no'][no_top]}"
-                            if no_top
-                            else "N/A",
+                            "no": (
+                                f"{100 - yes_top}@{ob.markets[market_ticker]['yes'][yes_top]}"
+                                if yes_top
+                                else "N/A"
+                            ),
+                            "yes": (
+                                f"{100 - no_top}@{ob.markets[market_ticker]['no'][no_top]}"
+                                if no_top
+                                else "N/A"
+                            ),
                         }
+
                         await self.queue.put({"type": "orderbook", "data": mkt})
+                        asyncio.create_task(self.maybe_place_order(mkt))
                     # await self.writer.maybe_flush()
                     end = time.perf_counter()
                     # logging.info(
@@ -260,6 +270,9 @@ class ObWebsocket:
                     #     self.__class__.__name__,
                     #     (end - start) * 1e6,
                     # )
+            except Exception as e:
+                logging.error(e)
             finally:
-                logging.info('flushing websockets to db')
+                logging.error("failed")
+
                 # await self.writer._flush()          # or expose `writer.drain()` publicly

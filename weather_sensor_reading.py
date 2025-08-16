@@ -3,7 +3,7 @@ import time
 from venv import create
 from typing import Dict, Any
 import logging
-import sys,os
+import sys, os
 from pathlib import Path
 import datetime
 
@@ -11,6 +11,7 @@ import asyncio
 import aiohttp
 import aiosqlite
 from aiohttp import ClientError, ClientTimeout
+from itertools import groupby
 
 
 API_URL = "https://api.synopticdata.com/v2/stations/timeseries"
@@ -63,33 +64,56 @@ CREATE TABLE IF NOT EXISTS weather (
 );
 """
 
-site2mkt = {"KLAX":"KXHIGHLAX",
-            "KNYC": "KXHIGHNY",
-            "KMDW":"KXHIGHCHI",
-            "KAUS":"KXHIGHAUS", 
-            "KMIA": "KXHIGHMIA",
-            "KDEN":"KXHIGHDEN",
-            "KPHL":"KXHIGHPHIL"}
+site2mkt = {
+    "KLAX": "KXHIGHLAX",
+    "KNYC": "KXHIGHNY",
+    "KMDW": "KXHIGHCHI",
+    "KAUS": "KXHIGHAUS",
+    "KMIA": "KXHIGHMIA",
+    "KDEN": "KXHIGHDEN",
+    "KPHL": "KXHIGHPHIL",
+}
 
-async def get_timeseries_async(
-    create_table_sql, insert_row_sql, db_file
-) -> Dict[str, Any]:
+
+def compress_consecutive(data):
+    compressed = {}
+    for sensor, readings in data.items():
+        readings = sorted(readings, key=lambda x: x[0])
+        compressed_readings = []
+        current_value = None
+        current_start = None
+
+        for timestamp, value in readings:
+            if current_value is None:
+                current_value = value
+                current_start = timestamp
+            elif value != current_value:
+                # Value changed, add the previous segment
+                compressed_readings.append((current_start[11:16], current_value))
+                current_value = value
+                current_start = timestamp
+
+        # Add the last segment
+        if current_value is not None:
+            compressed_readings.append((current_start[11:16], current_value))
+
+        compressed[sensor] = compressed_readings
+    return compressed
+
+
+async def get_timeseries_async(create_table_sql, insert_row_sql, db_file) -> Dict[str, Any]:
     params = {**DEFAULT_PARAMS, "STID": "KNYC,KMDW,KMIA,KAUS,KDEN,KPHL,KLAX"}
     async with aiosqlite.connect(db_file) as conn:
         await conn.execute(create_table_sql)
         await conn.commit()
 
     async with aiohttp.ClientSession() as session:
-        async with session.get(
-            API_URL, params=params, headers=HEADERS, timeout=15
-        ) as resp:
+        async with session.get(API_URL, params=params, headers=HEADERS, timeout=15) as resp:
             resp.raise_for_status()
             data = await resp.json()
             all_obs = [
                 (
-                    datetime.datetime.now(datetime.timezone.utc).isoformat(
-                        timespec="microseconds"
-                    ),
+                    datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds"),
                     st["STID"],
                     dt,
                     t,
@@ -109,8 +133,8 @@ async def get_timeseries_async(
             latest_obs = {
                 site2mkt[st["STID"]]: list(
                     zip(
-                        st["OBSERVATIONS"]["date_time"][-5:],
-                        st["OBSERVATIONS"]["air_temp_set_1"][-5:],
+                        st["OBSERVATIONS"]["date_time"][-6 * 13 :],
+                        st["OBSERVATIONS"]["air_temp_set_1"][-6 * 13 :],
                     )
                 )
                 for st in data["STATION"]
@@ -120,7 +144,7 @@ async def get_timeseries_async(
         await conn.executemany(insert_row_sql, all_obs)
         await conn.commit()
 
-    return latest_obs
+    return compress_consecutive(latest_obs)
 
 
 class SensorPoll:
@@ -133,18 +157,25 @@ class SensorPoll:
             await asyncio.sleep(1)
             start = time.perf_counter()
             try:
-                payload = await get_timeseries_async(
-                    CREATE_TABLE_SQL, INSERT_ROW_SQL, self.db_file
-                )
+                payload = await get_timeseries_async(CREATE_TABLE_SQL, INSERT_ROW_SQL, self.db_file)
             except (ClientError, asyncio.TimeoutError, ValueError) as exc:
                 logging.exception("Error fetching timeseries %s", exc)
                 continue  # do not push bad/None data to the queue
             packet = {"type": self.__class__.__name__, "payload": payload}
             await self.q.put(packet)
             end = time.perf_counter()
-            logging.info(
-                "%s took %.0f us", self.__class__.__name__, (end - start) * 1e6
-            )
+            logging.info("%s took %.0f us", self.__class__.__name__, (end - start) * 1e6)
+
+    async def resubscribe(self):
+        start = time.perf_counter()
+        try:
+            payload = await get_timeseries_async(CREATE_TABLE_SQL, INSERT_ROW_SQL, self.db_file)
+        except (ClientError, asyncio.TimeoutError, ValueError) as exc:
+            logging.exception("Error fetching timeseries %s", exc)
+        packet = {"type": self.__class__.__name__, "payload": payload}
+        await self.q.put(packet)
+        end = time.perf_counter()
+        logging.info("%s took %.0f us", self.__class__.__name__, (end - start) * 1e6)
 
 
 async def consumer(queue: asyncio.Queue):
@@ -172,7 +203,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(message)s", stream=sys.stdout
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", stream=sys.stdout)
     asyncio.run(main())

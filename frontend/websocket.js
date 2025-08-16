@@ -72,53 +72,69 @@ ws.onmessage = (evt) => {
       .forEach(r => tbody.appendChild(r));
 
   } else if (msg.type === "SensorPoll") {
-    const siteToRows = msg.payload || {};
-    [...master.tBodies[0].rows].forEach(row => {
-      const siteKey = row.dataset.siteKey;
-      const cell    = getOrCreateSensorCol(row, 'sensorCol');
+  console.log(msg.payload);
+  const siteToRows = msg.payload || {};
+  [...master.tBodies[0].rows].forEach(row => {
+    const siteKey = row.dataset.siteKey;
+    const cell    = getOrCreateSensorCol(row, 'sensorCol');
 
-      let inner = '';
-      const rowsForSite = siteToRows[siteKey] || [];
-      if (rowsForSite.length) {
-        inner = '<table border="1" cellpadding="4" cellspacing="0">';
-        rowsForSite.slice(0, 5).forEach(([k, v]) => {
-          inner += `<tr><td>${k.slice(11, 16)}</td><td>${v}</td></tr>`;
-        });
-        inner += '</table>';
+    const rowsForSite = siteToRows[siteKey] || [];
+    if (!rowsForSite.length) {
+      cell.innerHTML = '';
+      return;
+    }
+
+    // Build the red-key strings
+    const items = rowsForSite
+      .slice(0, 50)
+      .map(([k, v]) => `<span style="color:red">${k}</span>:${v}`);
+
+    // 3-column grid
+    let html = '<table border="1" cellpadding="4" cellspacing="0">';
+    const cols = 3;
+    for (let i = 0; i < items.length; i += cols) {
+      html += '<tr>';
+      for (let j = 0; j < cols; j++) {
+        html += `<td>${items[i + j] || ''}</td>`;
       }
-      cell.innerHTML = inner;
-    });
-  }
+      html += '</tr>';
+    }
+    html += '</table>';
+
+    cell.innerHTML = html;
+  });
+}
 else if (msg.type === "ForecastPoll") {
-  const siteKey = msg.site;                 // ← use msg.site
+  const siteKey = msg.site;
   const row     = master.tBodies[0].querySelector(`tr[data-site-key="${siteKey}"]`);
-  if (!row) return;                         // site not rendered yet
+  if (!row) return;
 
   const cell = getOrCreateForecastCol(row);
 
-/* build 12×8 table */
-let inner = '';
-const rows = msg.payload || [];
-if (rows.length) {
-  inner = '<table border="1" cellpadding="2" cellspacing="0" style="font-size:1em;">';
+  const rows = msg.payload || [];
+  let inner = '';
 
-  for (let r = 0; r < 8; r++) {
-    inner += '<tr>';
-    for (let c = 0; c < 6; c++) {
-      const idx = r * 6 + c;
-      if (idx < rows.length) {
-        const [h, v] = rows[idx];
-        inner += `<td><span style="color:red;">${String(h).slice(8,13)}</span>:${v}</td>`;
-      } else {
-        inner += '<td></td>';
+  if (rows.length) {
+    const cols = 3;
+    inner = '<table border="1" cellpadding="2" cellspacing="0" style="font-size:1em;">';
+
+    for (let i = 0; i < rows.length; i += cols) {
+      inner += '<tr>';
+      for (let j = 0; j < cols; j++) {
+        const idx = i + j;
+        if (idx < rows.length) {
+          const [h, v] = rows[idx];
+          inner += `<td><span style="color:red;">${String(h).slice(8,13)}</span>:${v}</td>`;
+        } else {
+          inner += '<td></td>';
+        }
       }
+      inner += '</tr>';
     }
-    inner += '</tr>';
+    inner += '</table>';
   }
-  inner += '</table>';
+  cell.innerHTML = inner;
 }
-cell.innerHTML = inner;
-  }
   else {
     console.log('Non-orderbook message:', msg);
   }

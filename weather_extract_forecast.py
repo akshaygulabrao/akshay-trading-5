@@ -1,7 +1,7 @@
 import asyncio
 import aiosqlite
 from pathlib import Path
-import logging,os
+import logging, os
 
 import time
 
@@ -58,13 +58,15 @@ nws_site2forecast = {
     "KLAX": "https://forecast.weather.gov/MapClick.php?lat=33.96&lon=-118.42&lg=english&&FcstType=digital",
 }
 
-site2mkt = {"KLAX":"KXHIGHLAX",
-            "KNYC": "KXHIGHNY",
-            "KMDW":"KXHIGHCHI",
-            "KAUS":"KXHIGHAUS", 
-            "KMIA": "KXHIGHMIA",
-            "KDEN":"KXHIGHDEN",
-            "KPHL":"KXHIGHPHIL"}
+site2mkt = {
+    "KLAX": "KXHIGHLAX",
+    "KNYC": "KXHIGHNY",
+    "KMDW": "KXHIGHCHI",
+    "KAUS": "KXHIGHAUS",
+    "KMIA": "KXHIGHMIA",
+    "KDEN": "KXHIGHDEN",
+    "KPHL": "KXHIGHPHIL",
+}
 
 
 async def extract_forecast(nws_site):
@@ -144,6 +146,25 @@ class ForecastPoll:
         self.db_file = db_file
         logging.getLogger("httpx").setLevel(logging.CRITICAL)
 
+    async def resubscribe(self):
+        await asyncio.sleep(1)
+        start = time.perf_counter()
+        coros = [extract_forecast(i) for i in nws_site2forecast.keys()]
+        for coro in asyncio.as_completed(coros):
+            result = await coro
+            async with aiosqlite.connect(self.db_file) as conn:
+                await conn.executemany(INSERT_ROW_SQL, result)
+                await conn.commit()
+            filtered = [(i["observation_time"], i["air_temp"]) for i in result]
+            packet = {
+                "type": self.__class__.__name__,
+                "site": site2mkt[result[0]["station"]],
+                "payload": filtered,
+            }
+
+            await self.q.put(packet)
+        end = time.perf_counter()
+        logging.info("%s took %.0f us", self.__class__.__name__, (end - start) * 1e6)
 
     async def run(self):
         async with aiosqlite.connect(self.db_file) as conn:
@@ -158,14 +179,16 @@ class ForecastPoll:
                 async with aiosqlite.connect(self.db_file) as conn:
                     await conn.executemany(INSERT_ROW_SQL, result)
                     await conn.commit()
-                filtered = [(i['observation_time'],i['air_temp']) for i in result]
-                packet = {"type": self.__class__.__name__, "site": site2mkt[result[0]['station']],"payload": filtered}
-                    
+                filtered = [(i["observation_time"], i["air_temp"]) for i in result]
+                packet = {
+                    "type": self.__class__.__name__,
+                    "site": site2mkt[result[0]["station"]],
+                    "payload": filtered,
+                }
+
                 await self.q.put(packet)
             end = time.perf_counter()
-            logging.info(
-                "%s took %.0f us", self.__class__.__name__, (end - start) * 1e6
-            )
+            logging.info("%s took %.0f us", self.__class__.__name__, (end - start) * 1e6)
 
 
 async def consumer(queue: asyncio.Queue):
@@ -174,7 +197,7 @@ async def consumer(queue: asyncio.Queue):
 
 
 async def main():
-   
+
     def _require_envs(*names):
         for n in names:
             p = os.getenv(n)
@@ -182,7 +205,6 @@ async def main():
                 sys.exit(f"Missing or invalid env var {n}")
 
     _require_envs("FORECAST_DB_PATH")
-
 
     queue = asyncio.Queue(maxsize=10_000)
     producers = [ForecastPoll(queue, os.getenv("FORECAST_DB_PATH"))]
@@ -195,7 +217,5 @@ async def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(message)s", stream=sys.stdout
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", stream=sys.stdout)
     asyncio.run(main())
