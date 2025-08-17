@@ -29,7 +29,6 @@ class KalshiBaseClient:
         self,
         key_id: str,
         private_key: rsa.RSAPrivateKey,
-        environment: Environment = Environment.DEMO,
     ):
         """Initializes the client with the provided API key and private key.
 
@@ -40,17 +39,10 @@ class KalshiBaseClient:
         """
         self.key_id = key_id
         self.private_key = private_key
-        self.environment = environment
         self.last_api_call = datetime.now()
 
-        if self.environment == Environment.DEMO:
-            self.HTTP_BASE_URL = "https://demo-api.kalshi.co"
-            self.WS_BASE_URL = "wss://demo-api.kalshi.co"
-        elif self.environment == Environment.PROD:
-            self.HTTP_BASE_URL = "https://api.elections.kalshi.com"
-            self.WS_BASE_URL = "wss://api.elections.kalshi.com"
-        else:
-            raise ValueError("Invalid environment")
+        self.u = "https://api.elections.kalshi.com"
+        self.w = "wss://api.elections.kalshi.com"
 
     def request_headers(self, method: str, path: str) -> Dict[str, Any]:
         """Generates the required authentication headers for API requests."""
@@ -95,10 +87,9 @@ class KalshiHttpClient(KalshiBaseClient):
         self,
         key_id: str,
         private_key: rsa.RSAPrivateKey,
-        environment: Environment = Environment.DEMO,
     ):
-        super().__init__(key_id, private_key, environment)
-        self.host = self.HTTP_BASE_URL
+        super().__init__(key_id, private_key)
+        self.host = self.u
         self.exchange_url = "/trade-api/v2/exchange"
         self.markets_url = "/trade-api/v2/markets"
         self.portfolio_url = "/trade-api/v2/portfolio"
@@ -179,16 +170,15 @@ class KalshiWebSocketClient(KalshiBaseClient):
         self,
         key_id: str,
         private_key: rsa.RSAPrivateKey,
-        environment: Environment = Environment.DEMO,
     ):
-        super().__init__(key_id, private_key, environment)
+        super().__init__(key_id, private_key)
         self.ws = None
         self.url_suffix = "/trade-api/ws/v2"
         self.message_id = 1  # Add counter for message IDs
 
     async def connect(self, tickers):
         """Establishes a WebSocket connection using authentication."""
-        host = self.WS_BASE_URL + self.url_suffix
+        host = self.w + self.url_suffix
         auth_headers = self.request_headers("GET", self.url_suffix)
         async with websockets.connect(host, additional_headers=auth_headers) as websocket:
             self.ws = websocket

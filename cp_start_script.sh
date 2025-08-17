@@ -28,6 +28,8 @@ FILES=(
   "/Users/ox/workspace/akshay-trading-5/stream_orderbook2.py"
   "/Users/ox/workspace/akshay-trading-5/orderbook.py"
   "/Users/ox/workspace/akshay-trading-5/weather_extract_forecast.py"
+  "/Users/ox/workspace/akshay-trading-5/orderbook_trader.py"
+  "/opt/data/orders.db"
 )
 
 # ---------- 4. Pre-flight checks ----------

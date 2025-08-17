@@ -31,18 +31,23 @@ CREATE TABLE IF NOT EXISTS weather (
     UNIQUE(station, observation_time)
 );
 ```
-
-### Orderbook
-
+### Orders ($ORDERS_DB_PATH)
 ```sql
-CREATE TABLE IF NOT EXISTS orderbook_events (
-    ts_micro        TEXT,
-    exch_ts_micro   TEXT,
-    seq_num         BIGINT,
-    ticker          TEXT,
-    side            SMALLINT,
-    price           BIGINT,
-    signed_qty      BIGINT,
-    is_delta        BOOLEAN
+-- Positions
+CREATE TABLE IF NOT EXISTS positions (
+    strategy TEXT,
+    ticker TEXT,
+    price INTEGER,
+    quantity INTEGER,
+    order_id UUID
+);
+
+-- Orders
+CREATE TABLE IF NOT EXISTS orders (
+    strategy TEXT,
+    ticker TEXT,
+    price INTEGER,
+    quantity INTEGER,
+    order_id UUID PRIMARY KEY
 );
 ```
