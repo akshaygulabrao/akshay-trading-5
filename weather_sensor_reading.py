@@ -164,7 +164,7 @@ class SensorPoll:
             packet = {"type": self.__class__.__name__, "payload": payload}
             await self.q.put(packet)
             end = time.perf_counter_ns()
-            logging.info("%s took %d ns", self.__class__.__name__, (end - start))
+            # logging.info("%s took %d ns", self.__class__.__name__, (end - start))
 
     async def resubscribe(self):
         start = time.perf_counter_ns()
@@ -175,7 +175,7 @@ class SensorPoll:
         packet = {"type": self.__class__.__name__, "payload": payload}
         await self.q.put(packet)
         end = time.perf_counter_ns()
-        logging.info("%s took %d ns", self.__class__.__name__, (end - start))
+        # logging.info("%s took %d ns", self.__class__.__name__, (end - start))
 
 
 async def consumer(queue: asyncio.Queue):

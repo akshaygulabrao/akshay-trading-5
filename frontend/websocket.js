@@ -7,7 +7,6 @@ ws.onclose = () => console.log("❌ closed");
 document.title = import.meta.env.VITE_PAGE_TITLE
 ws.onmessage = (evt) => {
   const msg = JSON.parse(evt.data);
-
   /* ----  NEW: type check  ---- */
   if (msg.type === "orderbook") {
     const { ticker, yes, no } = msg.data;
@@ -72,7 +71,6 @@ ws.onmessage = (evt) => {
       .forEach(r => tbody.appendChild(r));
 
   } else if (msg.type === "SensorPoll") {
-  console.log(msg.payload);
   const siteToRows = msg.payload || {};
   [...master.tBodies[0].rows].forEach(row => {
     const siteKey = row.dataset.siteKey;

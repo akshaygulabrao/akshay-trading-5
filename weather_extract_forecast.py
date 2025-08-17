@@ -169,7 +169,7 @@ class ForecastPoll:
                 logging.error("Error processing forecast: %s", e)
                 continue
         end = time.perf_counter_ns()
-        logging.info("%s took %d ns", self.__class__.__name__, (end - start))
+        # logging.info("%s took %d ns", self.__class__.__name__, (end - start))
 
 
     async def run(self):
