@@ -10,8 +10,7 @@ from weather_sensor_reading import SensorPoll
 from orderbook import ObWebsocket
 
 from functools import partial
-import concurrent.futures
-
+from orderbook_trader import OrderbookTrader
 
 class ConnectionManager:
     """
@@ -19,9 +18,10 @@ class ConnectionManager:
     a single message to all of them.
     """
 
-    def __init__(self, producers):
+    def __init__(self, producers, callbacks):
         self.active: set[WebSocket] = set()
         self.producers = producers
+        self.callbacks = callbacks or []
 
     async def connect(self, ws: WebSocket):
         await ws.accept()
@@ -50,19 +50,30 @@ class ConnectionManager:
         for ws in dead:
             self.active.discard(ws)
 
-    async def consumer(self, queue: asyncio.Queue):
+    async def relay(self, queue: asyncio.Queue):
         """
         Waits for messages from your producers and immediately
         pushes them to every open WebSocket via ConnectionManager.
         """
-        while True:
-            message = await queue.get()
-            if message["type"] == "SensorPoll":
-                await self.broadcast(message)
-            if message["type"] == "ForecastPoll":
-                await self.broadcast(message)
-            if message["type"] == "orderbook":
-                await self.broadcast(message)
+        try:
+            while True:
+                message = await queue.get()
+                if message["type"] == "SensorPoll":
+                    await self.broadcast(message)
+                elif message["type"] == "ForecastPoll":
+                    await self.broadcast(message)
+                elif message["type"] == "orderbook":
+                    await self.broadcast(message)
+
+                for cb in self.callbacks:
+                    try:
+                        await cb(message)
+                    except Exception as e:
+                        raise ValueError(e)
+        except Exception as e:
+            raise Exception(e)
+        finally:
+            sys.exit(1)
 
 
 async def main() -> None:
@@ -87,17 +98,18 @@ async def main() -> None:
             if p is None or not Path(p).exists():
                 sys.exit(f"Missing or invalid env var {n}")
 
-    _require_envs("FORECAST_DB_PATH", "WEATHER_DB_PATH", "ORDERBOOK_DB_PATH")
+    _require_envs("FORECAST_DB_PATH", "WEATHER_DB_PATH", "ORDERBOOK_DB_PATH", "ORDERS_DB_PATH")
     producers = [
         ForecastPoll(queue, os.getenv("FORECAST_DB_PATH")),
         SensorPoll(queue, os.getenv("WEATHER_DB_PATH")),
         ObWebsocket(queue, os.getenv("ORDERBOOK_DB_PATH")),
     ]
-    manager = ConnectionManager(producers)
+    trader = OrderbookTrader(os.getenv("ORDERS_DB_PATH"))
+    manager = ConnectionManager(producers, [trader.on_message])
 
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
 
-    consumer_task = asyncio.create_task(manager.consumer(queue))
+    consumer_task = asyncio.create_task(manager.relay(queue))
 
     server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info"))
     server_task = asyncio.create_task(server.serve())

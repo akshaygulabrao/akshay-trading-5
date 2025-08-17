@@ -1,9 +1,6 @@
-import asyncio
-import httpx
-import time
-import requests
+import os,uuid,sqlite3,requests
 from kalshi_ref import KalshiHttpClient
-import uuid
+from cryptography.hazmat.primitives import serialization
 
 """
 placement/cancellation order approximation: 16.3 seconds for 100 orders
@@ -12,21 +9,21 @@ placement/cancellation order approximation: 16.3 seconds for 100 orders
 
 
 def place_order(
-    client, t, a, p, q, limit_order=True, expiration_ts=None, post_only=False
+    client, ticker, action, price, quantity, limit_order=True, expiration_ts=None, post_only=False
 ):
     """
     client,ticker,action,price,quantity,order_type
     """
     assert isinstance(client, KalshiHttpClient)
-    assert a == "buy" or a == "sell"
+    assert action == "buy" or action == "sell"
     private_order_id = str(uuid.uuid4())
     params = {
-        "ticker": t,
-        "action": a,
+        "ticker": ticker,
+        "action": action,
         "side": "yes",
         "client_order_id": private_order_id,
-        "count": q,
-        "yes_price": p,
+        "count": quantity,
+        "yes_price": price,
     }
     params["type"] = "limit" if limit_order else "market"
 
@@ -80,10 +77,62 @@ def get_positions(client):
 
 
 if __name__ == "__main__":
-    client = setup_client()
-    assert isinstance(client, KalshiHttpClient)
-    practice_order_ticker = "KXLLMCHESS-26"
 
+    with open(os.getenv("PROD_KEYFILE"), "rb") as f:
+        private_key = serialization.load_pem_private_key(f.read(), password=None)
+    
+    client = KalshiHttpClient(os.getenv("PROD_KEYID"),private_key)
+
+    
+    print(client.get_balance())
+
+    response = client.get('/trade-api/v2/portfolio/positions')
+    print(response['market_positions'][0].keys())
+    for i in response['market_positions']:
+        if 'KXHIGH' in i['ticker'] and i['position'] != 0:
+            print(f'{i['ticker'].ljust(40)}, {i['market_exposure'] + i['fees_paid']/ abs(i['position'])},  {i['position']}')
+            conn = sqlite3.connect(os.getenv("ORDERS_DB_PATH"))
+            conn.execute("INSERT INTO positions VALUES (?,?,?,?,'')", 
+                        ("MomentumBot", i['ticker'], 
+                        i['market_exposure'] + i['fees_paid']/ abs(i['position']), 
+                        i['position']))
+            conn.commit()  # Add commit to save changes
+            conn.close()
+
+    response = client.get('/trade-api/v2/portfolio/orders', {'status': 'resting'})
+    print(response['orders'][0].keys())
+    for i in response['orders']:
+        if 'KXHIGH' in i['ticker']: 
+            print(i['ticker'],i['status'], i['yes_price'],i['maker_fees'],i['taker_fees'], i['action'],i['side'])
+
+    with sqlite3.connect("/opt/data/orders.db") as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS positions (" \
+        "strategy TEXT," \
+        "ticker TEXT," \
+        "price INTEGER," \
+        "quantity INTEGER," \
+        "order_id UUID" \
+        ")")
+        conn.commit()
+
+    with sqlite3.connect("/opt/data/orders.db") as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS orders (" \
+        "strategy TEXT, " \
+        "ticker TEXT, " \
+        "price INTEGER, " \
+        "quantity INTEGER, " \
+        "order_id UUID PRIMARY_KEY" \
+        ")")
+        conn.commit()
+    
+    # public_order_id = client.post('/trade-api/v2/portfolio/orders', {'ticker': 'KXHIGHAUS-25AUG17-B97.5', 
+    #                                                                  'action' : 'sell',
+    #                                                                  'side': 'yes',
+    #                                                                  'count': 2,
+    #                                                                  'type': 'market',
+    #                                                                  'client_order_id': str(uuid.uuid4())})
+    # print(public_order_id)
+    
     # places and cancels orders repeatedly
     # start = time.time()
     # for i in range(50):
@@ -99,5 +148,3 @@ if __name__ == "__main__":
     # print(end - start)
 
     # gets market overview
-    print(get_resting_orders(client, practice_order_ticker))
-    print(get_positions(client))

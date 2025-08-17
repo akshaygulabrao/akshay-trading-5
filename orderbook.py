@@ -263,7 +263,7 @@ class ObWebsocket:
 
                         await self.queue.put({"type": "orderbook", "data": mkt})
                     end = time.perf_counter_ns()
-                    logging.info(f"{end - start} ns")
+                    # logging.info(f"{end - start} ns")
             except Exception as e:
                 logging.error(e)
             finally:
