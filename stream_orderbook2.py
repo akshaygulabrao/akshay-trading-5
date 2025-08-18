@@ -98,7 +98,7 @@ async def main() -> None:
             if p is None or not Path(p).exists():
                 sys.exit(f"Missing or invalid env var {n}")
 
-    _require_envs("FORECAST_DB_PATH", "WEATHER_DB_PATH", "ORDERBOOK_DB_PATH", "ORDERS_DB_PATH")
+    _require_envs("FORECAST_DB_PATH", "WEATHER_DB_PATH", "ORDERS_DB_PATH")
     producers = [
         ForecastPoll(queue, os.getenv("FORECAST_DB_PATH")),
         SensorPoll(queue, os.getenv("WEATHER_DB_PATH")),

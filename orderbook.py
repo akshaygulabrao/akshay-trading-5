@@ -142,6 +142,8 @@ class ObWebsocket:
             )
             self.tickers.extend([m["ticker"] for m in r.json()["markets"]])
 
+        return self.tickers[:]
+
     async def run(self) -> None:
         KEY_ID = os.getenv("PROD_KEYID")
         PRIV_PATH = os.getenv("PROD_KEYFILE")
@@ -172,9 +174,9 @@ class ObWebsocket:
         await asyncio.get_event_loop().run_in_executor(None, self.active_tickers)
         logging.info(f"fetched {len(self.tickers)=}")
 
-        async with aiosqlite.connect(self.db_file) as db:
-            await db.execute(CREATE_TABLE_SQL)
-            await db.commit()
+        #async with aiosqlite.connect(self.db_file) as db:
+        #    await db.execute(CREATE_TABLE_SQL)
+        #    await db.commit()
 
         headers = auth_headers("GET", "/trade-api/ws/v2")
         async with websockets.connect(self.url, additional_headers=headers) as ws:

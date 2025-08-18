@@ -24,7 +24,6 @@ dependencies = [
     "seaborn>=0.13.2",
     "sortedcontainers>=2.4.0",
     "sqlalchemy>=2.0.42",
-    "torch>=2.8.0",
     "uvicorn>=0.35.0",
     "websockets>=15.0.1",
 ]
