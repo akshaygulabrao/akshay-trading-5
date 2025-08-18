@@ -5,11 +5,12 @@ import sqlite3
 import sys, logging
 
 # Set logging level to DEBUG
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+logger = logging.getLogger("orderbook_trader")
+logger.setLevel(logging.INFO)
+_hdlr = logging.StreamHandler()
+_hdlr.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+logger.addHandler(_hdlr)
+logger.propagate = False
 
 # -- Positions
 # CREATE TABLE positions (
@@ -24,11 +25,13 @@ logging.basicConfig(
 class OrderbookTrader:
     def __init__(self,db_file):
         self.db_file = db_file
+        self.name = "MomentumBot"
         self.tickers = set()
         self.tickers.add('KXHIGHAUS-25AUG17-B99.5')
-        with sqlite3.connect(self.db_file) as conn:
-            conn.execute("DELETE FROM positions")
-            conn.commit()
+
+        #with sqlite3.connect(self.db_file) as conn:
+        #    conn.execute("DELETE FROM positions")
+        #    conn.commit()
 
     # AN ORDERBOOK MESSAGE LOOKS LIKE THIS
     # mkt = {
@@ -48,77 +51,80 @@ class OrderbookTrader:
 
     async def on_message(self, message):
         try:
-            logging.debug("Raw message: %s", message)
+            logger.debug("Raw message: %s", message)
 
             if message.get("type") != "orderbook":
-                logging.debug("Skipping non-orderbook message")
+                logger.debug("Skipping non-orderbook message")
                 return
 
             ticker = message["data"]["ticker"]
-            if ticker not in self.tickers:
-                logging.debug("Ticker %s not in watch-list; skipping", ticker)
-                return
+            #if ticker not in self.tickers:
+            #    logger.debug("Ticker %s not in watch-list; skipping", ticker)
+            #    return
 
             yes_str = message["data"]["yes"]
             no_str  = message["data"]["no"]
             if yes_str == "N/A" or no_str == "N/A":
-                logging.debug("Ticker %s has incomplete book (yes=%s, no=%s); skipping",
-                              ticker, yes_str, no_str)
-                return
+                logger.debug("Ticker %s has incomplete book (yes=%s, no=%s); skipping", ticker, yes_str, no_str)
+                return;
+
+            p_yes_str, q_yes_str = yes_str.split("@")
+            p_no_str,  q_no_str  = no_str.split("@")
+            p_yes = int(p_yes_str)
+            p_no = int(p_no_str)
+            if p_yes > 97 or p_no > 97:
+                logging.info("No profitable prices")
+
             async with aiosqlite.connect(self.db_file) as conn:
                 async with conn.execute(
-                        "SELECT COALESCE(SUM(quantity), 0), COUNT(*) FROM positions WHERE ticker = ?",
-                        (ticker,)
+                        "SELECT price,quantity FROM positions WHERE ticker = ? AND strategy = ?",
+                        (ticker,self.name)
                         ) as cursor:
                     row = await cursor.fetchone()
-                    quantity = row[0] if row else 0
-                    count = row[1] if row else 0
+                    pos_price = row[0] if row else 0
+                    pos_qty = row[1] if row else 0
 
-                logging.info("Ticker %s: found %d position rows, net quantity = %s", ticker, count, quantity)
-                p_yes_str, q_yes_str = yes_str.split("@")
-                p_no_str,  q_no_str  = no_str.split("@")
-                p_yes = int(p_yes_str)
-                p_no  = int(p_no_str)
-                logging.info("Ticker %s book: yes=%s@%s, no=%s@%s",
-                             ticker, p_yes, q_yes_str, p_no, q_no_str)
-
-                if quantity == 1 and p_yes < p_no:
-                    order_quantity = -2
-                    logging.info("Ticker %s: long 1 → want to flip short 1 (order_qty=-2)", ticker)
-                elif quantity == -1 and p_no < p_yes:
-                    order_quantity = 2
-                    logging.info("Ticker %s: short 1 → want to flip long 1 (order_qty=2)", ticker)
-                elif quantity == 0:
+                logger.info("Ticker %s found in positions: net quantity = %s", ticker, pos_qty)
+                price = None
+                if pos_qty == 1 and p_yes < p_no:
+                    order_pos_qty = -2
+                    price = p_no
+                    logger.info("Ticker %s: long 1 → want to flip short 1 (order_qty=-2)", ticker)
+                elif pos_qty == -1 and p_no < p_yes:
+                    order_pos_qty = 2
+                    price = p_yes
+                    logger.info("Ticker %s: short 1 → want to flip long 1 (order_qty=2)", ticker)
+                elif pos_qty == 0:
                     if p_yes < p_no:
-                        order_quantity = -1
-                        logging.info("Ticker %s: flat → want to short 1 (order_qty=-1)", ticker)
+                        order_pos_qty = -1
+                        price = p_no
+                        logger.info("Ticker %s: flat → want to short 1 (order_qty=-1)", ticker)
                     elif p_no < p_yes:
-                        order_quantity = 1
-                        logging.info("Ticker %s: flat → want to long 1 (order_qty=1)", ticker)
+                        order_pos_qty = 1
+                        price = p_yes
+                        logger.info("Ticker %s: flat → want to long 1 (order_qty=1)", ticker)
                     else:
-                        order_quantity = 0
-                        logging.info("Ticker %s: flat, prices equal; no trade", ticker)
+                        order_pos_qty = 0
+                        logger.info("Ticker %s: flat, prices equal; no trade", ticker)
                 else:
-                    order_quantity = 0
-                    logging.info("Ticker %s: no rule matched (qty=%s); no trade", ticker, quantity)
+                    order_pos_qty = 0
+                    logger.debug("Ticker %s: no rule matched (qty=%s); no trade", ticker, pos_qty)
 
 
-                if order_quantity != 0:
-                    # Check if we already hold the desired side
-                    desired_side = 1 if order_quantity > 0 else -1
-                    if quantity == desired_side:
-                        logging.info("Ticker %s: already on correct side (qty=%s); no action", ticker, quantity)
-                    else:
-                        await conn.execute(
-                                "INSERT INTO positions VALUES (?,?,?,?,?)",
-                                ("MomentumBot", ticker, p_no, order_quantity, "")
-                                )
-                        await conn.commit()
-                        logging.info("Ticker %s: inserted position row (qty=%s, price=%s)",
-                                     ticker, order_quantity, p_no)
+                if order_pos_qty != 0 and price is not None:
+                    await conn.execute("""
+                            INSERT INTO positions (strategy, ticker, price, quantity, order_id)
+                            VALUES (?, ?, ?, ?, ?)
+                            ON CONFLICT(strategy, ticker) DO UPDATE SET
+                            price = excluded.price,
+                            quantity = excluded.quantity,
+                            order_id = excluded.order_id
+                            """, (self.name, ticker, price, pos_qty + order_pos_qty, ""))
+                    await conn.commit()
+                    logger.info("Ticker %s: inserted position row (qty=%s, price=%s)", ticker, order_pos_qty,price)
                 else:
-                    logging.debug("Ticker %s: order_quantity=0, nothing inserted", ticker)
+                    logger.debug("Ticker %s: order_pos_qty=0, nothing inserted", ticker)
 
         except Exception as e:
-            logging.exception("Error in on_message for ticker %s: %s", ticker if 'ticker' in locals() else "?", e)
+            logger.exception("Error in on_message for ticker %s: %s", ticker if 'ticker' in locals() else "?", e)
             raise
