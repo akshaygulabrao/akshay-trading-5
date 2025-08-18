@@ -2,7 +2,8 @@ import asyncio, aiosqlite
 from kalshi_ref import KalshiHttpClient
 from cryptography.hazmat.primitives import serialization
 import sqlite3
-import sys, logging
+import sys, logging,os,uuid
+
 
 # Set logging level to DEBUG
 logger = logging.getLogger("orderbook_trader")
@@ -27,7 +28,28 @@ class OrderbookTrader:
         self.db_file = db_file
         self.name = "MomentumBot"
         self.tickers = set()
-        self.tickers.add('KXHIGHAUS-25AUG17-B99.5')
+        self.tickers.add('KXHIGHAUS-25AUG18-B99.5')
+
+        try:
+            with open(os.getenv("PROD_KEYFILE"),"rb") as f:
+                private_key = serialization.load_pem_private_key(f.read(),password=None)
+            self.client = KalshiHttpClient(os.getenv("PROD_KEYID"), private_key)
+        except Exception as e:
+            logger.error(e)
+        #conn = sqlite3.connect(self.db_file)
+        #for ticker in self.tickers:
+        #    positions = self.client.get('/trade-api/v2/portfolio/positions', {'ticker':ticker})
+        #    logger.info(positions['market_positions'])
+        #    pos = positions['market_positions'][0]
+        #    # there can only be 1 position per ticker
+        #    conn.execute("""insert into positions
+        #        (strategy, ticker, price, quantity, order_id)
+        #        values (?,?,?,?,?)
+        #        on conflict (strategy,ticker)
+        #        do nothing""",
+        #        ("User", ticker, pos['market_exposure'] + pos['fees_paid'], pos['position'],''))
+        #conn.commit()
+        #conn.close()
 
         #with sqlite3.connect(self.db_file) as conn:
         #    conn.execute("DELETE FROM positions")
@@ -58,14 +80,14 @@ class OrderbookTrader:
                 return
 
             ticker = message["data"]["ticker"]
-            #if ticker not in self.tickers:
-            #    logger.debug("Ticker %s not in watch-list; skipping", ticker)
-            #    return
+            if ticker not in self.tickers:
+                logger.info("Ticker %s not in watch-list; skipping", ticker)
+                return
 
             yes_str = message["data"]["yes"]
             no_str  = message["data"]["no"]
             if yes_str == "N/A" or no_str == "N/A":
-                logger.debug("Ticker %s has incomplete book (yes=%s, no=%s); skipping", ticker, yes_str, no_str)
+                logger.info("Ticker %s has incomplete book (yes=%s, no=%s); skipping", ticker, yes_str, no_str)
                 return;
 
             p_yes_str, q_yes_str = yes_str.split("@")
@@ -73,7 +95,7 @@ class OrderbookTrader:
             p_yes = int(p_yes_str)
             p_no = int(p_no_str)
             if p_yes > 97 or p_no > 97:
-                logging.info("No profitable prices")
+                logger.info("Ticker %s has no profitable prices",ticker)
 
             async with aiosqlite.connect(self.db_file) as conn:
                 async with conn.execute(
@@ -112,6 +134,22 @@ class OrderbookTrader:
 
 
                 if order_pos_qty != 0 and price is not None:
+                    uid = str(uuid.uuid4())
+                    side = 'yes'
+                    action = 'buy'
+                    order_position = order_pos_qty
+                    if order_pos_qty < 0:
+                        action = 'buy'
+                        side = 'no'
+                        order_position = abs(order_pos_qty)
+                    order = {'ticker':ticker,
+                        'action':action,
+                        'side': side,
+                        'type' : 'market',
+                        'count': order_position,
+                        'client_order_id':uid}
+                    logging.info(order)
+                    order_id = self.client.post('/trade-api/v2/portfolio/orders', order)
                     await conn.execute("""
                             INSERT INTO positions (strategy, ticker, price, quantity, order_id)
                             VALUES (?, ?, ?, ?, ?)
@@ -119,7 +157,7 @@ class OrderbookTrader:
                             price = excluded.price,
                             quantity = excluded.quantity,
                             order_id = excluded.order_id
-                            """, (self.name, ticker, price, pos_qty + order_pos_qty, ""))
+                            """, (self.name, ticker, price, pos_qty + order_pos_qty, ''))
                     await conn.commit()
                     logger.info("Ticker %s: inserted position row (qty=%s, price=%s)", ticker, order_pos_qty,price)
                 else:
