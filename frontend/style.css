@@ -1,54 +1,77 @@
-    /* page layout */
-    body {
-      display: flex;
-      flex-direction: column;   /* ← add this line */
-      align-items: center;      /* keep it centered */
-      margin: 0;
-      padding: 20px;
-      font-family: sans-serif;
-    }
+:root {
+  --bg: #111827;          /* body bg */
+  --surface-1: #1f2937;   /* tables / cards */
+  --surface-2: #374151;   /* inputs, buttons */
+  --text: #f9fafb;        /* main text */
+  --text-muted: #9ca3af;  /* headings, secondary text */
+  --border: #4b5563;      /* borders / rules */
+  --accent: #10b981;      /* green accent for balance / highlights */
+}
 
-    /* top countdown / balance bar */
-    #topBar {
-      margin: 1rem 0;
-      font-family: monospace;
-    }
-    #balance {
-      width: 100px;
-    }
+/* page layout */
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  padding: 20px;
+  font-family: sans-serif;
 
-    /* master table (outer grid) */
-    #master {
-      border: 1px solid black;
-      border-collapse: collapse;
-    }
-    #master th,
-    #master td {
-      border: 1px solid black;
-      padding: 4px 8px;
-      text-align: center;
-    }
+  background: var(--bg);
+  color: var(--text);
+}
 
-    /* inner order-book tables */
-    .book {
-      border: none;
-      border-collapse: collapse;
-      margin: 0 auto 20px;     /* 20 px below each book */
-    }
-    .book td,
-    .book th {
-      border: none;
-      padding: 2px 6px;
-    }
+/* top countdown / balance bar */
+#topBar {
+  margin: 1rem 0;
+  font-family: monospace;
+  color: var(--text-muted);
+}
+#balance {
+  width: 100px;
+  background: var(--surface-2);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  padding: 2px 4px;
+  text-align: center;
+}
 
-    /* site-day header */
-    .siteDayLabel {
-      font-size: 1em;
-      color: #000;
-      margin: 8px 0 4px;       /* 8 px above, 4 px below */
-    }
-  .chart-container {
-    width: 800px;
-    height: 400px;
-    margin: 20px;
+/* master table (outer grid) */
+#master {
+  border: 1px solid var(--border);
+  border-collapse: collapse;
+  background: var(--surface-1);
+}
+#master th,
+#master td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: center;
+}
+
+/* inner order-book tables */
+.book {
+  border: none;
+  border-collapse: collapse;
+  margin: 0 auto 20px;
+  background: transparent;   /* inherit surface-1 from parent */
+}
+.book td,
+.book th {
+  border: none;
+  padding: 2px 6px;
+}
+
+/* site-day header */
+.siteDayLabel {
+  font-size: 1em;
+  color: var(--text-muted);
+  margin: 8px 0 4px;
+}
+
+/* chart container (optional) */
+.chart-container {
+  width: 800px;
+  height: 400px;
+  margin: 20px;
 }
