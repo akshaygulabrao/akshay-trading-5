@@ -1,4 +1,4 @@
-import asyncio, logging, sys, os
+import asyncio, logging, sys, os,requests
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
@@ -64,6 +64,8 @@ class ConnectionManager:
                     await self.broadcast(message)
                 elif message["type"] == "orderbook":
                     await self.broadcast(message)
+                elif message["type"] == "positionUpdate":
+                    await self.broadcast(message)
 
                 for cb in self.callbacks:
                     try:
@@ -99,12 +101,21 @@ async def main() -> None:
                 sys.exit(f"Missing or invalid env var {n}")
 
     _require_envs("FORECAST_DB_PATH", "WEATHER_DB_PATH", "ORDERS_DB_PATH")
+    tickers = []
+    for city in ["NY", "CHI", "MIA", "AUS", "DEN", "PHIL", "LAX"]:
+        r = requests.get(
+            "https://api.elections.kalshi.com/trade-api/v2/markets",
+            params={"series_ticker": f"KXHIGH{city}", "status": "open"},
+            timeout=2,
+            )
+        tickers.extend([m["ticker"] for m in r.json()["markets"]])
     producers = [
-        ForecastPoll(queue, os.getenv("FORECAST_DB_PATH")),
-        SensorPoll(queue, os.getenv("WEATHER_DB_PATH")),
-        ObWebsocket(queue, os.getenv("ORDERBOOK_DB_PATH")),
+        #ForecastPoll(queue, os.getenv("FORECAST_DB_PATH")),
+        #SensorPoll(queue, os.getenv("WEATHER_DB_PATH")),
+        ObWebsocket(queue, os.getenv("ORDERBOOK_DB_PATH",tickers)),
     ]
-    trader = OrderbookTrader(os.getenv("ORDERS_DB_PATH"))
+    aus_tickers = [t for t in tickers if "KXHIGHAUS" in t]
+    trader = OrderbookTrader(os.getenv("ORDERS_DB_PATH"),aus_tickers)
     manager = ConnectionManager(producers, [trader.on_message])
 
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
@@ -126,7 +137,7 @@ if __name__ == "__main__":
         root.removeHandler(h)
 
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     root.addHandler(handler)
 
     asyncio.run(main())
