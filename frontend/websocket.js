@@ -139,7 +139,23 @@ ws.onmessage = (evt) => {
         }
         cell.innerHTML = inner;
     }
+    else if (msg.type === "positionUpdate") {
+        const { ticker, pos } = msg;
+
+        // find the <tr> that owns this ticker
+        const tr = [...master.querySelectorAll('tr[data-ticker]')]
+                     .find(r => r.dataset.ticker === ticker);
+        if (!tr) return;          // ticker not rendered yet
+
+        // create / update the 4th column
+        let td = tr.children[3];
+        if (!td) {
+            td = tr.insertCell(3);
+        }
+        td.textContent = pos;
+    }
     else {
+
         console.log('Non-orderbook message:', msg);
     }
 };
