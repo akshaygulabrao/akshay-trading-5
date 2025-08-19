@@ -80,10 +80,10 @@ if __name__ == "__main__":
 
     with open(os.getenv("PROD_KEYFILE"), "rb") as f:
         private_key = serialization.load_pem_private_key(f.read(), password=None)
-    
+
     client = KalshiHttpClient(os.getenv("PROD_KEYID"),private_key)
 
-    
+
     print(client.get_balance())
 
     response = client.get('/trade-api/v2/portfolio/positions')
@@ -92,9 +92,9 @@ if __name__ == "__main__":
         if 'KXHIGH' in i['ticker'] and i['position'] != 0:
             print(f'{i['ticker'].ljust(40)}, {i['market_exposure'] + i['fees_paid']/ abs(i['position'])},  {i['position']}')
             conn = sqlite3.connect(os.getenv("ORDERS_DB_PATH"))
-            conn.execute("INSERT INTO positions VALUES (?,?,?,?,'')", 
-                        ("MomentumBot", i['ticker'], 
-                        i['market_exposure'] + i['fees_paid']/ abs(i['position']), 
+            conn.execute("INSERT INTO positions VALUES (?,?,?,?,'')",
+                        ("MomentumBot", i['ticker'],
+                        i['market_exposure'] + i['fees_paid']/ abs(i['position']),
                         i['position']))
             conn.commit()  # Add commit to save changes
             conn.close()
@@ -102,7 +102,7 @@ if __name__ == "__main__":
     response = client.get('/trade-api/v2/portfolio/orders', {'status': 'resting'})
     print(response['orders'][0].keys())
     for i in response['orders']:
-        if 'KXHIGH' in i['ticker']: 
+        if 'KXHIGH' in i['ticker']:
             print(i['ticker'],i['status'], i['yes_price'],i['maker_fees'],i['taker_fees'], i['action'],i['side'])
 
     with sqlite3.connect("/opt/data/orders.db") as conn:
@@ -124,15 +124,15 @@ if __name__ == "__main__":
         "order_id UUID PRIMARY_KEY" \
         ")")
         conn.commit()
-    
-    # public_order_id = client.post('/trade-api/v2/portfolio/orders', {'ticker': 'KXHIGHAUS-25AUG17-B97.5', 
+
+    # public_order_id = client.post('/trade-api/v2/portfolio/orders', {'ticker': 'KXHIGHAUS-25AUG17-B97.5',
     #                                                                  'action' : 'sell',
     #                                                                  'side': 'yes',
     #                                                                  'count': 2,
     #                                                                  'type': 'market',
     #                                                                  'client_order_id': str(uuid.uuid4())})
     # print(public_order_id)
-    
+
     # places and cancels orders repeatedly
     # start = time.time()
     # for i in range(50):
