@@ -109,23 +109,34 @@ async def main() -> None:
             timeout=2,
             )
         tickers.extend([m["ticker"] for m in r.json()["markets"]])
+    r = requests.get(
+        "https://api.elections.kalshi.com/trade-api/v2/markets",
+        params={"series_ticker": f"KXWTAMATCH", "status": "open"},
+        timeout=2,
+        )
+    tickers.extend([m['ticker'] for m in r.json()['markets']])
+    logging.info(tickers)
     producers = [
         #ForecastPoll(queue, os.getenv("FORECAST_DB_PATH")),
         #SensorPoll(queue, os.getenv("WEATHER_DB_PATH")),
-        ObWebsocket(queue, os.getenv("ORDERBOOK_DB_PATH",tickers)),
+        ObWebsocket(queue, os.getenv("ORDERBOOK_DB_PATH"),tickers),
     ]
-    aus_tickers = [t for t in tickers if "KXHIGHAUS" in t]
-    trader = OrderbookTrader(os.getenv("ORDERS_DB_PATH"),aus_tickers)
+    tickers = [t for t in tickers if "KXHIGHAUS-25AUG20" in t or "KXWTAMATCH-25AUG19ANNJOV" in t]
+    trader = OrderbookTrader(queue, os.getenv("ORDERS_DB_PATH"), tickers)
     manager = ConnectionManager(producers, [trader.on_message])
 
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
 
-    consumer_task = asyncio.create_task(manager.relay(queue))
+    consumer_tasks = [asyncio.create_task(manager.relay(queue))]
+    position_task = asyncio.create_task(trader.update_positions())
+    balance_task = asyncio.create_task(trader.update_balance())
+    consumer_tasks.append(position_task)
+    consumer_tasks.append(balance_task)
 
     server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info"))
     server_task = asyncio.create_task(server.serve())
 
-    await asyncio.gather(*producer_tasks, consumer_task, server_task, return_exceptions=True)
+    await asyncio.gather(*producer_tasks, *consumer_tasks, server_task, return_exceptions=True)
 
 
 if __name__ == "__main__":

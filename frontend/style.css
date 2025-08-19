@@ -36,14 +36,17 @@ body {
   text-align: center;
 }
 
-/* master table (outer grid) */
-#master {
+#master,
+#non-weather {
   border: 1px solid var(--border);
   border-collapse: collapse;
   background: var(--surface-1);
 }
+
 #master th,
-#master td {
+#master td,
+#non-weather th,
+#non-weather td {
   border: 1px solid var(--border);
   padding: 4px 8px;
   text-align: center;

@@ -1,16 +1,15 @@
 const ws   = new WebSocket(import.meta.env.VITE_SOCKET_URL);
 const rows = new Map();   // ticker → <tr>
 const books= new Map();   // eventKey → <table class=book>
+const nonWeatherBooks = new Map(); // ticker → <table class=book>
 ws.onopen  = () => console.log("📡 connected");
 ws.onclose = () => console.log("❌ closed");
 
 document.title = import.meta.env.VITE_PAGE_TITLE
 ws.onmessage = (evt) => {
     const msg = JSON.parse(evt.data);
-    /* ----  NEW: type check  ---- */
     if (msg.type === "orderbook") {
         const { ticker, yes, no } = msg.data;
-
         if (ticker.startsWith("KXHIGH")){
             const { site, date, strike } = parseTicker(ticker);
             if (!strike) return;
@@ -73,7 +72,24 @@ ws.onmessage = (evt) => {
             .forEach(r => tbody.appendChild(r));
         }
         else{
-            console.log("Non KXHIGH", {ticker,yes,no});
+            // Non-weather market
+            const { ticker, yes, no } = msg.data;
+
+            const tbody = document.querySelector('#non-weather tbody');
+            let tr = [...tbody.rows].find(r => r.dataset.ticker === ticker);
+
+            if (!tr) {
+                tr = tbody.insertRow();
+                tr.dataset.ticker = ticker;
+                tr.innerHTML = `
+                    <td>${ticker}</td>
+                    <td>${yes}</td>
+                    <td>${no}</td>
+                `;
+            } else {
+                tr.children[1].textContent = yes;
+                tr.children[2].textContent = no;
+            }
         }
 
     } else if (msg.type === "SensorPoll") {
@@ -142,9 +158,16 @@ ws.onmessage = (evt) => {
     else if (msg.type === "positionUpdate") {
         const { ticker, pos } = msg;
 
-        // find the <tr> that owns this ticker
-        const tr = [...master.querySelectorAll('tr[data-ticker]')]
-                     .find(r => r.dataset.ticker === ticker);
+        // 1. Try the weather tables
+        let tr = [...master.querySelectorAll('tr[data-ticker]')]
+                 .find(r => r.dataset.ticker === ticker);
+
+        // 2. If not found, try the non-weather table
+        if (!tr) {
+            tr = [...document.querySelectorAll('#non-weather tr[data-ticker]')]
+                 .find(r => r.dataset.ticker === ticker);
+        }
+
         if (!tr) return;          // ticker not rendered yet
 
         // create / update the 4th column

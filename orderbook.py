@@ -81,14 +81,15 @@ class BatchWriter:
 
 
 class ObWebsocket:
-    def __init__(self, queue: asyncio.Queue, db_file: str):
+    def __init__(self, queue: asyncio.Queue, db_file: str, tickers):
         self.reconnect_delay = 1
         self.max_reconnect_delay = 60
         self.order_books: dict[str, OrderBook] = {}
         self.url = "wss://api.elections.kalshi.com/trade-api/ws/v2"
         self.db_file = db_file
         self.queue = queue
-        self.tickers = []
+        self.tickers = tickers
+        logging.info(tickers)
         self.orderbook_delta_id = -1
         self.writer = BatchWriter(self.db_file)
         self.ws = None
@@ -115,7 +116,6 @@ class ObWebsocket:
                     }
                 )
             )
-            await asyncio.get_event_loop().run_in_executor(None, self.active_tickers)
             await self.ws.send(
                 json.dumps(
                     {
@@ -132,17 +132,6 @@ class ObWebsocket:
             logging.warning("abnormal close: %s", e)
             pass
 
-    def active_tickers(self):
-        self.tickers = []
-        for city in ["NY", "CHI", "MIA", "AUS", "DEN", "PHIL", "LAX"]:
-            r = requests.get(
-                "https://api.elections.kalshi.com/trade-api/v2/markets",
-                params={"series_ticker": f"KXHIGH{city}", "status": "open"},
-                timeout=2,
-            )
-            self.tickers.extend([m["ticker"] for m in r.json()["markets"]])
-
-        return self.tickers[:]
 
     async def run(self) -> None:
         KEY_ID = os.getenv("PROD_KEYID")
@@ -171,8 +160,6 @@ class ObWebsocket:
                 "KALSHI-ACCESS-TIMESTAMP": ts,
             }
 
-        await asyncio.get_event_loop().run_in_executor(None, self.active_tickers)
-        logging.info(f"fetched {len(self.tickers)=}")
 
         #async with aiosqlite.connect(self.db_file) as db:
         #    await db.execute(CREATE_TABLE_SQL)
@@ -216,6 +203,7 @@ class ObWebsocket:
                 async for raw in ws:
                     start = time.perf_counter_ns()
                     data = json.loads(raw)
+                    #logging.info(data)
                     msg = data.get("msg", {})
                     ts_l = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds")
                     ts_e = msg.get("ts", "")
