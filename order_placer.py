@@ -90,40 +90,16 @@ if __name__ == "__main__":
     print(response['market_positions'][0].keys())
     for i in response['market_positions']:
         if 'KXHIGH' in i['ticker'] and i['position'] != 0:
-            print(f'{i['ticker'].ljust(40)}, {i['market_exposure'] + i['fees_paid']/ abs(i['position'])},  {i['position']}')
+            #print(f'{i['ticker'].ljust(40)}, {i['market_exposure'] + i['fees_paid']/ abs(i['position'])},  {i['position']}')
+            print(i)
             conn = sqlite3.connect(os.getenv("ORDERS_DB_PATH"))
-            conn.execute("INSERT INTO positions VALUES (?,?,?,?,'')",
+            conn.execute("INSERT INTO positions VALUES (?,?,?,?,'') ON CONFLICT DO NOTHING",
                         ("MomentumBot", i['ticker'],
                         i['market_exposure'] + i['fees_paid']/ abs(i['position']),
                         i['position']))
             conn.commit()  # Add commit to save changes
             conn.close()
 
-    response = client.get('/trade-api/v2/portfolio/orders', {'status': 'resting'})
-    print(response['orders'][0].keys())
-    for i in response['orders']:
-        if 'KXHIGH' in i['ticker']:
-            print(i['ticker'],i['status'], i['yes_price'],i['maker_fees'],i['taker_fees'], i['action'],i['side'])
-
-    with sqlite3.connect("/opt/data/orders.db") as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS positions (" \
-        "strategy TEXT," \
-        "ticker TEXT," \
-        "price INTEGER," \
-        "quantity INTEGER," \
-        "order_id UUID" \
-        ")")
-        conn.commit()
-
-    with sqlite3.connect("/opt/data/orders.db") as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS orders (" \
-        "strategy TEXT, " \
-        "ticker TEXT, " \
-        "price INTEGER, " \
-        "quantity INTEGER, " \
-        "order_id UUID PRIMARY_KEY" \
-        ")")
-        conn.commit()
 
     # public_order_id = client.post('/trade-api/v2/portfolio/orders', {'ticker': 'KXHIGHAUS-25AUG17-B97.5',
     #                                                                  'action' : 'sell',

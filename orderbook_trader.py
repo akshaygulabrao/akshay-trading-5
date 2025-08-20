@@ -17,6 +17,22 @@ logger.setLevel(logging.INFO)
 #    UNIQUE (strategy, ticker)
 #);
 
+def decide_trade(pos_qty: int, p_yes: int, p_no: int) -> tuple[int, int | None]:
+    """
+    Returns (order_qty, price) based on current position and market prices.
+    Returns (0, None) if no trade should be made.
+    """
+    if pos_qty == 1 and p_yes < p_no:
+        return -2, p_no
+    elif pos_qty == -1 and p_no < p_yes:
+        return 2, p_yes
+    elif pos_qty == 0:
+        if p_yes < p_no:
+            return -1, p_no
+        elif p_no < p_yes:
+            return 1, p_yes
+    return 0, None
+
 class OrderbookTrader:
     def __init__(self, queue: asyncio.Queue, db_file, tickers=[]):
         self.queue = queue
@@ -38,35 +54,52 @@ class OrderbookTrader:
         while True:
             self.balance = self.client.get_balance()['balance']
             await asyncio.sleep(1)
+    # ---------- shared helper ----------
+    async def _sync_ticker_position(self, conn: aiosqlite.Connection, ticker: str,
+                                    emit_update: bool = False):
+        """
+        Fetch the position for `ticker` from Kalshi and upsert it into the DB.
+        If `emit_update` is True, also push a positionUpdate message.
+        """
+        positions = self.client.get('/trade-api/v2/portfolio/positions',
+                                    {'ticker': ticker})
+        if not positions['market_positions']:
+            # No position: make sure we store qty = 0
+            qty = 0
+            price = 0
+            pos = 0
+        else:
+            pos   = positions['market_positions'][0]
+            qty   = pos['position']
+            price = pos['market_exposure'] + pos['fees_paid']
+            await conn.execute("""
+                INSERT INTO positions (strategy, ticker, price, quantity, order_id)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (strategy, ticker) DO UPDATE SET
+                    price    = excluded.price,
+                    quantity = excluded.quantity,
+                    order_id = excluded.order_id
+            """, (self.name, ticker, price, qty, ''))
+            await conn.commit()
 
+        if emit_update:
+            msg = {"type": "positionUpdate", "ticker": ticker, "pos": qty}
+            await self.queue.put(msg)
+
+    # ---------- one-shot init ----------
+    async def initialize_positions(self):
+        async with aiosqlite.connect(self.db_file) as conn:
+            for ticker in self.tickers:
+                await self._sync_ticker_position(conn, ticker, emit_update=True)
+                logger.info("Initialized position for %s", ticker)
+
+    # ---------- periodic update ----------
     async def update_positions(self):
         while True:
             async with aiosqlite.connect(self.db_file) as conn:
                 for ticker in self.tickers:
-                    positions = self.client.get('/trade-api/v2/portfolio/positions', {'ticker': ticker})
-                    #logger.info(positions['market_positions'])
-                    if len(positions['market_positions']) == 0:
-                        continue
-                    pos = positions['market_positions'][0]
-                    await conn.execute("""
-                        INSERT INTO positions (strategy, ticker, price, quantity, order_id)
-                        VALUES (?, ?, ?, ?, ?)
-                        ON CONFLICT (strategy, ticker)
-                        DO UPDATE SET
-                            price = excluded.price,
-                            quantity = excluded.quantity,
-                            order_id = excluded.order_id
-                    """, (
-                        self.name,
-                        ticker,
-                        pos['market_exposure'] + pos['fees_paid'],
-                        pos['position'],
-                        ''
-                    ))
-                    await conn.commit()
-                    msg = {"type": "positionUpdate", "ticker": ticker, "pos": pos['position']}
-                    await self.queue.put(msg)
-                await asyncio.sleep(5)
+                    await self._sync_ticker_position(conn, ticker, emit_update=True)
+            await asyncio.sleep(5)
 
     # AN ORDERBOOK MESSAGE LOOKS LIKE THIS
     # mkt = {
@@ -83,88 +116,74 @@ class OrderbookTrader:
     #     ),
     # }
     # await self.queue.put({"type": "orderbook", "data": mkt})
-
     async def on_message(self, message):
         try:
             logger.debug("Raw message: %s", message)
 
-            if message.get("type") != "orderbook": return
-            if (ticker := (msg := message['data'])['ticker'])  not in self.tickers: return;
-            if (yes_str := msg['yes'])  == "N/A" or (no_str := msg['no']) == "N/A":
-                logger.info("%s incomplete", ticker); return;
-            #logging.info(msg)
+            if message.get("type") != "orderbook":
+                return
+            msg = message['data']
+            ticker = msg['ticker']
+            if ticker not in self.tickers:
+                return
+            if msg['yes'] == "N/A" or msg['no'] == "N/A":
+                logger.info("%s incomplete", ticker)
+                return
 
-            p_yes_str, q_yes_str = yes_str.split("@")
-            p_no_str,  q_no_str  = no_str.split("@")
-            if (p_yes := int(p_yes_str)) > 97 or (p_no := int(p_no_str)) > 97:
-                logger.info("%s not profitable",ticker)
+            p_yes_str, _ = msg['yes'].split("@")
+            p_no_str, _ = msg['no'].split("@")
+            p_yes = int(p_yes_str)
+            p_no = int(p_no_str)
+
+            if p_yes > 97 or p_no > 97:
+                logger.info("%s not profitable", ticker)
+                return
 
             async with aiosqlite.connect(self.db_file) as conn:
                 async with conn.execute(
-                        "SELECT price,quantity FROM positions WHERE ticker = ? AND strategy = ?",
-                        (ticker,self.name)
-                        ) as cursor:
+                    "SELECT price, quantity FROM positions WHERE ticker = ? AND strategy = ?",
+                    (ticker, self.name)
+                ) as cursor:
                     row = await cursor.fetchone()
                     pos_price = row[0] if row else 0
                     pos_qty = row[1] if row else 0
 
-                logger.debug("%s found in positions: net quantity = %s", ticker, pos_qty)
-                price = None
-                if pos_qty == 1 and p_yes < p_no:
-                    order_pos_qty = -2
-                    price = p_no
-                    logger.debug("%s: long 1 → want to flip short 1 (order_qty=-2)", ticker)
-                elif pos_qty == -1 and p_no < p_yes:
-                    order_pos_qty = 2
-                    price = p_yes
-                    logger.debug("%s: short 1 → want to flip long 1 (order_qty=2)", ticker)
-                elif pos_qty == 0:
-                    if p_yes < p_no:
-                        order_pos_qty = -1
-                        price = p_no
-                        logger.debug("%s: flat → want to short 1 (order_qty=-1)", ticker)
-                    elif p_no < p_yes:
-                        order_pos_qty = 1
-                        price = p_yes
-                        logger.debug("%s: flat → want to long 1 (order_qty=1)", ticker)
-                    else:
-                        order_pos_qty = 0
-                        logger.debug("%s: flat, prices equal; no trade", ticker)
-                else:
-                    order_pos_qty = 0
-                    logger.debug("%s: no rule matched (qty=%s); no trade", ticker, pos_qty)
+                order_pos_qty, price = decide_trade(pos_qty, p_yes, p_no)
 
-
-                if order_pos_qty != 0 and price is not None and self.balance > order_pos_qty * 100:
+                if order_pos_qty != 0 and price is not None and self.balance > abs(order_pos_qty) * 100:
                     uid = str(uuid.uuid4())
                     side = 'yes'
                     action = 'buy'
                     order_position = order_pos_qty
                     if order_pos_qty < 0:
-                        action = 'buy'
                         side = 'no'
                         order_position = abs(order_pos_qty)
-                    order = {'ticker':ticker,
-                        'action':action,
+
+                    order = {
+                        'ticker': ticker,
+                        'action': action,
                         'side': side,
-                        'type' : 'market',
+                        'type': 'market',
                         'count': order_position,
-                        'client_order_id':uid}
+                        'client_order_id': uid
+                    }
                     logger.info(order)
-                    #order_id = self.client.post('/trade-api/v2/portfolio/orders', order)
+                    # order_id = self.client.post('/trade-api/v2/portfolio/orders', order)
+
                     await conn.execute("""
-                            INSERT INTO positions (strategy, ticker, price, quantity, order_id)
-                            VALUES (?, ?, ?, ?, ?)
-                            ON CONFLICT(strategy, ticker) DO UPDATE SET
+                        INSERT INTO positions (strategy, ticker, price, quantity, order_id)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(strategy, ticker) DO UPDATE SET
                             price = excluded.price,
                             quantity = excluded.quantity,
                             order_id = excluded.order_id
-                            """, (self.name, ticker, price, pos_qty + order_pos_qty, ''))
+                    """, (self.name, ticker, price, pos_qty + order_pos_qty, ''))
                     await conn.commit()
-                    msg = {"type":"positionUpdate", "ticker" : ticker, "pos" : pos_qty + order_pos_qty}
+
+                    msg = {"type": "positionUpdate", "ticker": ticker, "pos": pos_qty + order_pos_qty}
                     await self.queue.put(msg)
                 else:
-                    logger.debug("Ticker %s: order_pos_qty=0, nothing inserted", ticker)
+                    logger.debug("Ticker %s: no trade", ticker)
 
         except Exception as e:
             logger.exception("Error in on_message for ticker %s: %s", ticker if 'ticker' in locals() else "?", e)

@@ -123,6 +123,7 @@ async def main() -> None:
     ]
     tickers = [t for t in tickers if "KXHIGHAUS-25AUG20" in t or "KXWTAMATCH-25AUG19ANNJOV" in t]
     trader = OrderbookTrader(queue, os.getenv("ORDERS_DB_PATH"), tickers)
+    await trader.initialize_positions()
     manager = ConnectionManager(producers, [trader.on_message])
 
     producer_tasks = [asyncio.create_task(p.run()) for p in producers]
