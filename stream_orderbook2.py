@@ -115,13 +115,20 @@ async def main() -> None:
         timeout=2,
         )
     tickers.extend([m['ticker'] for m in r.json()['markets']])
+    r = requests.get(
+        "https://api.elections.kalshi.com/trade-api/v2/markets",
+        params={"series_ticker": f"KXMLBGAME", "status": "open"},
+        timeout=2,
+        )
+    tickers.extend([m['ticker'] for m in r.json()['markets']])
     logging.info(tickers)
     producers = [
         #ForecastPoll(queue, os.getenv("FORECAST_DB_PATH")),
         #SensorPoll(queue, os.getenv("WEATHER_DB_PATH")),
         ObWebsocket(queue, os.getenv("ORDERBOOK_DB_PATH"),tickers),
     ]
-    tickers = [t for t in tickers if "KXHIGHAUS-25AUG20" in t or "KXWTAMATCH-25AUG19ANNJOV" in t]
+    needles = {"KXWTAMATCH", "KXMLBGAME", ```}
+    tickers = [t for t in tickers if any(n in t for n in needles)]
     trader = OrderbookTrader(queue, os.getenv("ORDERS_DB_PATH"), tickers)
     await trader.initialize_positions()
     manager = ConnectionManager(producers, [trader.on_message])

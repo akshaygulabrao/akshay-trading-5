@@ -11,8 +11,8 @@ logger.setLevel(logging.INFO)
 # CREATE TABLE positions (
 #    strategy TEXT NOT NULL,
 #    ticker   TEXT NOT NULL,
-#    price    INTEGER NOT NULL CHECK (price > 0),
-#    quantity INTEGER NOT NULL CHECK (quantity <> 0),
+#    price    INTEGER NOT NULL CHECK,
+#    quantity INTEGER NOT NULL CHECK,
 #    order_id UUID,
 #    UNIQUE (strategy, ticker)
 #);
@@ -46,10 +46,20 @@ class OrderbookTrader:
         except Exception as e:
             logger.error(e)
 
-        # Clear positions table
         with sqlite3.connect(self.db_file) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS positions (
+                    strategy TEXT NOT NULL,
+                    ticker   TEXT NOT NULL,
+                    price    INTEGER NOT NULL,
+                    quantity INTEGER NOT NULL,
+                    order_id UUID,
+                    UNIQUE (strategy, ticker)
+                );
+            """)
             conn.execute("DELETE FROM positions")
             conn.commit()
+
     async def update_balance(self):
         while True:
             self.balance = self.client.get_balance()['balance']
@@ -136,9 +146,11 @@ class OrderbookTrader:
             p_no = int(p_no_str)
 
             if p_yes > 97 or p_no > 97:
-                logger.info("%s not profitable", ticker)
+                logger.debug("%s not profitable", ticker)
                 return
-
+            if abs(p_no - p_yes) < 66:
+                logger.debug("%s spread too tight (%d vs %d), skipping", ticker, p_yes, p_no)
+                return
             async with aiosqlite.connect(self.db_file) as conn:
                 async with conn.execute(
                     "SELECT price, quantity FROM positions WHERE ticker = ? AND strategy = ?",
@@ -168,7 +180,7 @@ class OrderbookTrader:
                         'client_order_id': uid
                     }
                     logger.info(order)
-                    # order_id = self.client.post('/trade-api/v2/portfolio/orders', order)
+                    order_id = self.client.post('/trade-api/v2/portfolio/orders', order)
 
                     await conn.execute("""
                         INSERT INTO positions (strategy, ticker, price, quantity, order_id)
