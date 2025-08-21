@@ -127,7 +127,7 @@ async def main() -> None:
         #SensorPoll(queue, os.getenv("WEATHER_DB_PATH")),
         ObWebsocket(queue, os.getenv("ORDERBOOK_DB_PATH"),tickers),
     ]
-    needles = {"KXWTAMATCH", "KXMLBGAME", ```}
+    needles = {"KXWTAMATCH", "KXMLBGAME" }
     tickers = [t for t in tickers if any(n in t for n in needles)]
     trader = OrderbookTrader(queue, os.getenv("ORDERS_DB_PATH"), tickers)
     await trader.initialize_positions()
